@@ -75,6 +75,7 @@ for CC in ["gcc", "clang"]:
                 "USE_PCRE_JIT=1",
                 "USE_LUA=1",
                 "USE_OPENSSL=1",
+                "USE_QUIC=1",
                 "USE_SYSTEMD=1",
                 "USE_WURFL=1",
                 "WURFL_INC=contrib/wurfl",
