@@ -178,6 +178,18 @@ static inline STACK_OF(X509) *X509_chain_up_ref(STACK_OF(X509) *chain)
  * Functions missing in BoringSSL
  */
 
+typedef struct x509_object_st
+    {
+    /* one of the above types */
+    int type;
+    union       {
+        char *ptr;
+        X509 *x509;
+        X509_CRL *crl;
+        EVP_PKEY *pkey;
+        } data;
+    } X509_OBJECT;
+
 static inline X509_CRL *X509_OBJECT_get0_X509_CRL(const X509_OBJECT *a)
 {
     if (a == NULL || a->type != X509_LU_CRL) {
