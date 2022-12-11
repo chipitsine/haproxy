@@ -2,6 +2,7 @@ name: Spelling Check
 
 on:
   push:
+  pull_request:
 
 permissions:
   contents: read
@@ -16,4 +17,4 @@ jobs:
       with:
         skip: CHANGELOG,Makefile,*.fig,*.pem
         ignore_words_list: ist,ists,hist,wan,ca,cas,que,ans,te,nd,referer,ot,uint,iif,fo,keep-alives,dosen,ifset,thrid,strack,ba,chck,hel,unx,mor
-        uri_ignore_words_list: "*"
+        uri_ignore_words_list: trafic
