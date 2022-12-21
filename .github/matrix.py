@@ -51,8 +51,8 @@ def clean_compression(compression):
 def get_asan_flags(cc):
     return [
         "USE_OBSOLETE_LINKER=1",
-        'DEBUG_CFLAGS="-g -fsanitize=address"',
-        'LDFLAGS="-fsanitize=address"',
+        'DEBUG_CFLAGS="-g -fsanitize=address -fsanitize-address-use-after-scope"',
+        'LDFLAGS="-fsanitize=address -fsanitize-address-use-after-scope"',
         'CPU_CFLAGS.generic="-O1"',
     ]
 
