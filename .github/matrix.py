@@ -149,7 +149,7 @@ for CC in ["gcc", "clang"]:
         ]
 
     for ssl in ssl_versions:
-        flags = ["USE_OPENSSL=1"]
+        flags = ["USE_OPENSSL=1", "USE_OBSOLETE_LINKER=1", 'DEBUG_CFLAGS="-g -fsanitize=address"', 'LDFLAGS="-fsanitize=address"', 'CPU_CFLAGS.generic="-O1"' ]
         if ssl == "BORINGSSL=yes" or ssl == "QUICTLS=yes" or "LIBRESSL" in ssl:
             flags.append("USE_QUIC=1")
         if ssl != "stock":
@@ -162,10 +162,6 @@ for CC in ["gcc", "clang"]:
 
         matrix.append(
             {
-                "USE_OBSOLETE_LINKER=1",
-                'DEBUG_CFLAGS="-g -fsanitize=address"',
-                'LDFLAGS="-fsanitize=address"',
-                'CPU_CFLAGS.generic="-O1"',
                 "name": "{}, {}, ssl={}".format(os, CC, clean_ssl(ssl)),
                 "os": os,
                 "TARGET": TARGET,
