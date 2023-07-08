@@ -135,7 +135,7 @@ jobs:
       # This allows one to more easily see which tests fail.
       run: echo "::add-matcher::.github/vtest.json"
     - name: smoke testing
-      if: ${{ startsWith(matrix.os, 'ubuntu-')
+      if: ${{ startsWith(matrix.os, 'ubuntu-') }}
       run: |
         ./haproxy -cc 'version_atleast(2.5)'
     - name: Run VTest for HAProxy ${{ steps.show-version.outputs.version }}
