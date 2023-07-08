@@ -69,15 +69,6 @@ def clean_compression(compression):
     return compression.replace("USE_", "").lower()
 
 
-def get_asan_flags(cc):
-    return [
-        "USE_OBSOLETE_LINKER=1",
-        'DEBUG_CFLAGS="-g -fsanitize=address"',
-        'LDFLAGS="-fsanitize=address"',
-        'CPU_CFLAGS.generic="-O1"',
-    ]
-
-
 matrix = []
 
 # Ubuntu
@@ -105,8 +96,11 @@ for CC in ["gcc", "clang"]:
             "os": os,
             "TARGET": TARGET,
             "CC": CC,
-            "FLAGS": get_asan_flags(CC)
-            + [
+            "FLAGS": [
+                "USE_OBSOLETE_LINKER=1",
+                'DEBUG_CFLAGS="-g -fsanitize=address"',
+                'LDFLAGS="-fsanitize=address"',
+                'CPU_CFLAGS.generic="-O1"',
                 "USE_ZLIB=1",
                 "USE_OT=1",
                 "OT_INC=${HOME}/opt-ot/include",
