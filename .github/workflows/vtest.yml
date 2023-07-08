@@ -130,9 +130,14 @@ jobs:
         echo "::endgroup::"
         haproxy -vv
         echo "version=$(haproxy -v |awk 'NR==1{print $3}')" >> $GITHUB_OUTPUT
+        echo "name=haproxy_built_with::$(haproxy -vv | grep compiler)" >> $GITHUB_OUTPUT
     - name: Install problem matcher for VTest
       # This allows one to more easily see which tests fail.
       run: echo "::add-matcher::.github/vtest.json"
+    - name: smoke testing
+      if: ${{ startsWith(matrix.os, 'ubuntu-')
+      run: |
+        ./haproxy -cc 'version_atleast(2.5)'
     - name: Run VTest for HAProxy ${{ steps.show-version.outputs.version }}
       id: vtest
       run: |
