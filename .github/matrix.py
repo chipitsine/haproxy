@@ -162,6 +162,10 @@ for CC in ["gcc", "clang"]:
 
         matrix.append(
             {
+                "USE_OBSOLETE_LINKER=1",
+                'DEBUG_CFLAGS="-g -fsanitize=address"',
+                'LDFLAGS="-fsanitize=address"',
+                'CPU_CFLAGS.generic="-O1"',
                 "name": "{}, {}, ssl={}".format(os, CC, clean_ssl(ssl)),
                 "os": os,
                 "TARGET": TARGET,
