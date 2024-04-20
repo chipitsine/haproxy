@@ -214,8 +214,7 @@ STD_CFLAGS  := $(call cc-opt-alt,-fwrapv,-fno-strict-overflow)
 
 #### Compiler-specific flags to enable certain classes of warnings.
 # Some are hard-coded, others are enabled only if supported.
-WARN_CFLAGS := -Wall -Wextra -Wundef  \
-               $(call cc-all-fast,                                            \
+WARN_CFLAGS := $(call cc-all-fast,                                            \
                  -Wtype-limits -Wshift-negative-value -Wshift-overflow=2)      \
 
 #### Compiler-specific flags to enable certain classes of warnings.
