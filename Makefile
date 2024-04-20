@@ -493,7 +493,7 @@ $(set_target_defaults)
 # linking with it by default as it's not always available nor deployed
 # (especially on archs which do not need it).
 ifneq ($(USE_THREAD:0=),)
-  ifneq ($(shell $(CC) $(OPT_CFLAGS) $(ARCH_FLAGS) $(CPU_CFLAGS) $(STD_CFLAGS) $(WARN_CFLAGS) $(NOWARN_CFLAGS) $(ERROR_CFLAGS) $(CFLAGS) -dM -E -xc - </dev/null 2>/dev/null | grep -c 'LOCK_FREE.*1'),0)
+  ifneq ($(shell $(CC) $(OPT_CFLAGS) $(ARCH_FLAGS) $(CPU_CFLAGS) $(STD_CFLAGS) $(WARN_CFLAGS) $(NOWARN_CFLAGS) $(ERROR_CFLAGS) $(CFLAGS) -dM -E -xc - </dev/null 2>/dev/null | grep -c 'LOCK_FREE.*[12]'),0)
     USE_LIBATOMIC   = implicit
   endif
 endif
