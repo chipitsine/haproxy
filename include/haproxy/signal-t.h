@@ -16,6 +16,7 @@
 
 #include <signal.h>
 #include <haproxy/api-t.h>
+#include <haproxy/compat.h>
 
 /* flags for -> flags */
 #define SIG_F_ONE_SHOOT         0x0001  /* unregister handler before calling it */
@@ -23,7 +24,8 @@
 #define SIG_F_TYPE_TASK         0x0004  /* handler is a task + reason */
 
 /* Define WDTSIG if available */
-#if defined(USE_RT) && (_POSIX_TIMERS > 0) && defined(_POSIX_THREAD_CPUTIME)
+#if defined(USE_RT)
+#ifdef HAVE_PTHREAD_GETCPUCLOCKID
 
 
 /* We'll deliver SIGALRM when we've run out of CPU as it's not intercepted by
@@ -31,6 +33,7 @@
  */
 #define WDTSIG SIGALRM
 
+#endif
 #endif
 
 #ifdef USE_THREAD_DUMP

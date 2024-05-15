@@ -20,13 +20,14 @@
 #include <haproxy/signal-t.h>
 #include <haproxy/thread.h>
 #include <haproxy/tools.h>
-
+#include <haproxy/compat.h>
 
 /*
  * It relies on timer_create() and timer_settime() which are only available in
  * this case.
  */
-#if defined(USE_RT) && defined(_POSIX_TIMERS) && (_POSIX_TIMERS > 0) && defined(_POSIX_THREAD_CPUTIME)
+#if defined(USE_RT)
+#ifdef HAVE_PTHREAD_GETCPUCLOCKID
 
 /* define a dummy value to designate "no timer". Use only 32 bits. */
 #ifndef TIMER_INVALID
@@ -190,4 +191,5 @@ int init_wdt()
 REGISTER_POST_CHECK(init_wdt);
 REGISTER_PER_THREAD_INIT(init_wdt_per_thread);
 REGISTER_PER_THREAD_DEINIT(deinit_wdt_per_thread);
+#endif
 #endif

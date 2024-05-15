@@ -12,12 +12,7 @@
 
 #include <sys/time.h>
 #include <signal.h>
-#include <time.h>
-
-#ifdef USE_THREAD
-#include <pthread.h>
-#endif
-
+#include <haproxy/compat.h>
 #include <haproxy/api.h>
 #include <haproxy/activity.h>
 #include <haproxy/clock.h>
@@ -45,7 +40,7 @@ static THREAD_LOCAL unsigned int idle_time;       /* total idle time over curren
 static THREAD_LOCAL unsigned int iso_time_sec;     /* last iso time value for this thread */
 static THREAD_LOCAL char         iso_time_str[34]; /* ISO time representation of gettimeofday() */
 
-#if defined(_POSIX_TIMERS) && (_POSIX_TIMERS > 0) && defined(_POSIX_THREAD_CPUTIME)
+#ifdef HAVE_PTHREAD_GETCPUCLOCKID
 static clockid_t per_thread_clock_id[MAX_THREADS];
 #endif
 
@@ -86,7 +81,7 @@ uint64_t now_mono_time_fast(void)
 uint64_t now_cpu_time(void)
 {
 	uint64_t ret = 0;
-#if defined(_POSIX_TIMERS) && (_POSIX_TIMERS > 0) && defined(_POSIX_THREAD_CPUTIME)
+#ifdef HAVE_PTHREAD_GETCPUCLOCKID
 	struct timespec ts;
 	clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
 	ret = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
@@ -124,7 +119,7 @@ uint64_t now_cpu_time_fast(void)
 uint64_t now_cpu_time_thread(int thr)
 {
 	uint64_t ret = 0;
-#if defined(_POSIX_TIMERS) && (_POSIX_TIMERS > 0) && defined(_POSIX_THREAD_CPUTIME)
+#ifdef HAVE_PTHREAD_GETCPUCLOCKID
 	struct timespec ts;
 	clock_gettime(per_thread_clock_id[thr], &ts);
 	ret = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
@@ -135,7 +130,7 @@ uint64_t now_cpu_time_thread(int thr)
 /* set the clock source for the local thread */
 void clock_set_local_source(void)
 {
-#if defined(_POSIX_TIMERS) && (_POSIX_TIMERS > 0) && defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME >= 0)
+#ifdef HAVE_PTHREAD_GETCPUCLOCKID
 #ifdef USE_THREAD
 	pthread_getcpuclockid(pthread_self(), &per_thread_clock_id[tid]);
 #else
@@ -152,7 +147,8 @@ int clock_setup_signal_timer(void *tmr, int sig, int val)
 {
 	int ret = 0;
 
-#if defined(USE_RT) && (_POSIX_TIMERS > 0) && defined(_POSIX_THREAD_CPUTIME)
+#if defined(USE_RT) 
+#ifdef HAVE_PTHREAD_GETCPUCLOCKID
 	struct sigevent sev = { };
 	timer_t *timer = tmr;
 	sigset_t set;
@@ -171,6 +167,7 @@ int clock_setup_signal_timer(void *tmr, int sig, int val)
 	if (timer_create(per_thread_clock_id[tid], &sev, timer) != -1 ||
 	    timer_create(CLOCK_REALTIME, &sev, timer) != -1)
 		ret = 1;
+#endif
 #endif
 	return ret;
 }
