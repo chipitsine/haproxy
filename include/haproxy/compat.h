@@ -32,6 +32,11 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
+/* This is needed for detecting whether optional pthread_getcpuclockid() is implemented or not */
+#ifdef USE_THREAD
+#include <pthread.h>
+#endif
+#include <time.h>
 
 /* These are a few short names for commonly used types whose size and sometimes
  * signedness depends on the architecture. Be careful not to rely on a few
@@ -307,6 +312,10 @@ typedef struct { } empty_t;
  */
 #if defined(sun)
 #define queue _queue
+#endif
+
+#if defined(_POSIX_TIMERS) && (_POSIX_TIMERS > 0) && defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME >= 0)
+#define HAVE_PTHREAD_GETCPUCLOCKID
 #endif
 
 #endif /* _HAPROXY_COMPAT_H */
