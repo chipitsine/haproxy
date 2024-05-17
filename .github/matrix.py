@@ -116,7 +116,7 @@ def main(ref_name):
                 "FLAGS": [  
                     "USE_OBSOLETE_LINKER=1",
                     'ARCH_FLAGS="-g -fsanitize=address"',
-                    'USE_SSL=1'
+                    'USE_OPENSSL=1'
                 ],
             }
         )
