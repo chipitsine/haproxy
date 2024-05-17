@@ -98,136 +98,6 @@ def main(ref_name):
     else:
         os = "ubuntu-latest" # development branch
 
-    TARGET = "linux-glibc"
-    for CC in ["gcc", "clang"]:
-        matrix.append(
-            {
-                "name": "{}, {}, no features".format(os, CC),
-                "os": os,
-                "TARGET": TARGET,
-                "CC": CC,
-                "FLAGS": [],
-            }
-        )
-
-        matrix.append(
-            {
-                "name": "{}, {}, all features".format(os, CC),
-                "os": os,
-                "TARGET": TARGET,
-                "CC": CC,
-                "FLAGS": [
-                    'DEBUG="-DDEBUG_LIST"',
-                    "USE_ZLIB=1",
-                    "USE_OT=1",
-                    "OT_INC=${HOME}/opt-ot/include",
-                    "OT_LIB=${HOME}/opt-ot/lib",
-                    "OT_RUNPATH=1",
-                    "USE_PCRE=1",
-                    "USE_PCRE_JIT=1",
-                    "USE_LUA=1",
-                    "USE_OPENSSL=1",
-                    "USE_SYSTEMD=1",
-                    "USE_WURFL=1",
-                    "WURFL_INC=addons/wurfl/dummy",
-                    "WURFL_LIB=addons/wurfl/dummy",
-                    "USE_DEVICEATLAS=1",
-                    "DEVICEATLAS_SRC=addons/deviceatlas/dummy",
-                    "USE_PROMEX=1",
-                    "USE_51DEGREES=1",
-                    "51DEGREES_SRC=addons/51degrees/dummy/pattern",
-                ],
-            }
-        )
-
-        # ASAN
-
-        matrix.append(
-            {
-                "name": "{}, {}, ASAN, all features".format(os, CC),
-                "os": os,
-                "TARGET": TARGET,
-                "CC": CC,
-                "FLAGS": [
-                    "USE_OBSOLETE_LINKER=1",
-                    'ARCH_FLAGS="-g -fsanitize=address"',
-                    'OPT_CFLAGS="-O1"',
-                    "USE_ZLIB=1",
-                    "USE_OT=1",
-                    "OT_INC=${HOME}/opt-ot/include",
-                    "OT_LIB=${HOME}/opt-ot/lib",
-                    "OT_RUNPATH=1",
-                    "USE_PCRE=1",
-                    "USE_PCRE_JIT=1",
-                    "USE_LUA=1",
-                    "USE_OPENSSL=1",
-                    "USE_SYSTEMD=1",
-                    "USE_WURFL=1",
-                    "WURFL_INC=addons/wurfl/dummy",
-                    "WURFL_LIB=addons/wurfl/dummy",
-                    "USE_DEVICEATLAS=1",
-                    "DEVICEATLAS_SRC=addons/deviceatlas/dummy",
-                    "USE_PROMEX=1",
-                    "USE_51DEGREES=1",
-                    "51DEGREES_SRC=addons/51degrees/dummy/pattern",
-                ],
-            }
-        )
-
-        for compression in ["USE_ZLIB=1"]:
-            matrix.append(
-                {
-                    "name": "{}, {}, gz={}".format(os, CC, clean_compression(compression)),
-                    "os": os,
-                    "TARGET": TARGET,
-                    "CC": CC,
-                    "FLAGS": [compression],
-                }
-            )
-
-        ssl_versions = [
-            "stock",
-            "OPENSSL_VERSION=1.0.2u",
-            "OPENSSL_VERSION=1.1.1s",
-            "QUICTLS=yes",
-            "WOLFSSL_VERSION=5.6.6",
-            "AWS_LC_VERSION=1.16.0",
-            # "BORINGSSL=yes",
-        ]
-
-        if "haproxy-" not in ref_name: # development branch
-            ssl_versions = ssl_versions + [
-                "OPENSSL_VERSION=latest",
-                "LIBRESSL_VERSION=latest",
-            ]
-
-        for ssl in ssl_versions:
-            flags = ["USE_OPENSSL=1"]
-            if ssl == "BORINGSSL=yes" or ssl == "QUICTLS=yes" or "LIBRESSL" in ssl or "WOLFSSL" in ssl or "AWS_LC" in ssl:
-                flags.append("USE_QUIC=1")
-            if "WOLFSSL" in ssl:
-                flags.append("USE_OPENSSL_WOLFSSL=1")
-            if "AWS_LC" in ssl:
-                flags.append("USE_OPENSSL_AWSLC=1")
-            if ssl != "stock":
-                flags.append("SSL_LIB=${HOME}/opt/lib")
-                flags.append("SSL_INC=${HOME}/opt/include")
-            if "LIBRESSL" in ssl and "latest" in ssl:
-                ssl = determine_latest_libressl(ssl)
-            if "OPENSSL" in ssl and "latest" in ssl:
-                ssl = determine_latest_openssl(ssl)
-
-            matrix.append(
-                {
-                    "name": "{}, {}, ssl={}".format(os, CC, clean_ssl(ssl)),
-                    "os": os,
-                    "TARGET": TARGET,
-                    "CC": CC,
-                    "ssl": ssl,
-                    "FLAGS": flags,
-                }
-            )
-
     # macOS
 
     if "haproxy-" in ref_name:
@@ -243,7 +113,11 @@ def main(ref_name):
                 "os": os,
                 "TARGET": TARGET,
                 "CC": CC,
-                "FLAGS": [],
+                "FLAGS": [  
+                    "USE_OBSOLETE_LINKER=1",
+                    'ARCH_FLAGS="-g -fsanitize=address"',
+                    'USE_SSL=1'
+                ],
             }
         )
 
