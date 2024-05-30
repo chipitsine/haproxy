@@ -85,6 +85,30 @@ def determine_latest_libressl(ssl):
 def clean_compression(compression):
     return compression.replace("USE_", "").lower()
 
+@functools.lru_cache(5)
+def determine_latest_quictls_commit():
+    headers = {}
+    if environ.get("GITHUB_TOKEN") is not None:
+        headers["Authorization"] = "token {}".format(environ.get("GITHUB_TOKEN"))
+
+    try:
+        request = urllib.request.Request("https://api.github.com/repos/QuicTLS/OpenSSL", headers=headers)
+
+        repo_info = urllib.request.urlopen(request)
+        repo_info = json.loads(repo_info.read().decode("utf-8"))
+
+        default_branch=repo_info['default_branch']
+
+        request = urllib.request.Request("https://api.github.com/repos/QuicTLS/OpenSSL/commits/{}".format(default_branch), headers=headers)
+
+        commits = urllib.request.urlopen(request)
+        commits = json.loads(commits.read().decode("utf-8"))
+
+        latest_commit=commits['sha']
+    except:
+        return "failed_to_detect"
+
+    return latest_commit
 
 def main(ref_name):
     print("Generating matrix for branch '{}'.".format(ref_name))
@@ -217,16 +241,29 @@ def main(ref_name):
             if "OPENSSL" in ssl and "latest" in ssl:
                 ssl = determine_latest_openssl(ssl)
 
-            matrix.append(
-                {
-                    "name": "{}, {}, ssl={}".format(os, CC, clean_ssl(ssl)),
-                    "os": os,
-                    "TARGET": TARGET,
-                    "CC": CC,
-                    "ssl": ssl,
-                    "FLAGS": flags,
-                }
-            )
+            if "QUICTLS" in ssl:
+              matrix.append(
+                  {
+                      "name": "{}, {}, ssl={} QUICTLS_COMMIT={}".format(os, CC, clean_ssl(ssl), determine_latest_quictls_commit()),
+                      "os": os,
+                      "TARGET": TARGET,
+                      "CC": CC,
+                      "ssl": ssl,
+                      "FLAGS": flags,
+                      "QUICTLS_COMMIT": determine_latest_quictls_commit(),
+                  }
+              )
+            else:
+              matrix.append(
+                  {
+                      "name": "{}, {}, ssl={}".format(os, CC, clean_ssl(ssl)),
+                      "os": os,
+                      "TARGET": TARGET,
+                      "CC": CC,
+                      "ssl": ssl,
+                      "FLAGS": flags,
+                  }
+              )
 
     # macOS
 
