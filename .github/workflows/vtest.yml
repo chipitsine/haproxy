@@ -87,8 +87,8 @@ jobs:
     - name: Install apt dependencies
       if: ${{ startsWith(matrix.os, 'ubuntu-') }}
       run: |
-        # skip man-db update
         sudo rm /var/lib/man-db/auto-update
+        echo 'Acquire::Languages "none";' > /etc/apt/apt.conf.d/99translations
         sudo apt-get update
         sudo apt-get --no-install-recommends -y install \
           ${{ contains(matrix.FLAGS, 'USE_LUA=1')     && 'liblua5.4-dev'  || '' }} \
