@@ -149,6 +149,12 @@ build_aws_lc () {
 download_quictls () {
     if [ ! -d "${BUILDSSL_TMPDIR}/quictls" ]; then
         git clone --depth=1 https://github.com/quictls/openssl ${BUILDSSL_TMPDIR}/quictls
+        if [ -n "${QUICTLS_COMMIT}" ]; then
+          (
+           cd ${BUILDSSL_TMPDIR}/quictls
+           git checkout ${QUICTLS_COMMIT}
+          )
+        fi
     else
        (
         cd ${BUILDSSL_TMPDIR}/quictls
