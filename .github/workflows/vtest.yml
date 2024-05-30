@@ -48,6 +48,8 @@ jobs:
       with:
         fetch-depth: 100
 
+    - uses: abbbi/github-actions-tune@v1
+
     - name: Setup coredumps
       if: ${{ startsWith(matrix.os, 'ubuntu-') }}
       run: |
