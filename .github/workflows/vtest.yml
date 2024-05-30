@@ -88,6 +88,7 @@ jobs:
       if: ${{ startsWith(matrix.os, 'ubuntu-') }}
       run: |
         sudo rm /var/lib/man-db/auto-update
+        sudo mkdir /etc/apt/apt.conf.d
         sudo sh -c 'echo 'Acquire::Languages "none";' > /etc/apt/apt.conf.d/99translations'
         sudo sh -c 'echo 'force-unsafe-io' > /etc/dpkg/dpkg.cfg.d/apt-speedup'
         sudo apt-get update
