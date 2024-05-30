@@ -61,7 +61,7 @@ jobs:
       id: generate-cache-key
       run: |
 
-        if ! [[ "${{ matrix.name }}" =~ "QUICTLS_COMMIT" ]] 2> /dev/null && [[ "${{ matrix.name }}" =~ "quic" ]]; then
+        if ! [[ "${{ matrix.name }}" =~ "QUICTLS_COMMITT" ]] 2> /dev/null && [[ "${{ matrix.name }}" =~ "quic" ]]; then
           echo "QUICTLS_COMMIT is missing"
           exit 1
         fi
