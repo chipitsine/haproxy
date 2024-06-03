@@ -6,6 +6,9 @@
 # as published by the Free Software Foundation; either version
 # 2 of the License, or (at your option) any later version.
 
+##gh api repos/QuicTLS/OpenSSL --jq .default_branch
+##gh api repos/QuicTLS/OpenSSL/commits/openssl-3.1.5+quic --jq .sha
+
 name: VTest
 
 on:
