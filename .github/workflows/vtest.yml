@@ -43,6 +43,7 @@ jobs:
       # paths.
       TMPDIR: /tmp
       OT_CPP_VERSION: 1.6.0
+      ASAN_OPTIONS: detect_stack_use_after_return=1
     steps:
     - uses: actions/checkout@v4
       with:
