@@ -57,6 +57,10 @@ static int da_json_file(char **args, int section_type, struct proxy *curpx,
 		return -1;
 	}
 	global_deviceatlas.jsonpath = strdup(args[1]);
+	if (global_deviceatlas.jsonpath == NULL) {
+		memprintf(err, "Insufficient memory.");
+		return -1;
+	}
 	return 0;
 }
 
@@ -101,6 +105,10 @@ static int da_properties_cookie(char **args, int section_type, struct proxy *cur
 		return -1;
 	} else {
 		global_deviceatlas.cookiename = strdup(args[1]);
+		if (global_deviceatlas.cookiename == NULL) {
+			memprintf(err, "Insufficient memory.");
+			return -1;
+		}
 	}
 	global_deviceatlas.cookienamelen = strlen(global_deviceatlas.cookiename);
 	return 0;
@@ -197,6 +205,11 @@ static int init_deviceatlas(void)
 
 		if (global_deviceatlas.cookiename == 0) {
 			global_deviceatlas.cookiename = strdup(DA_COOKIENAME_DEFAULT);
+			if (global_deviceatlas.cookiename == NULL) {
+				ha_alert("deviceatlas : insufficient memory.\n");
+				err_code |= ERR_ALERT | ERR_FATAL;
+				goto out;
+			}
 			global_deviceatlas.cookienamelen = strlen(global_deviceatlas.cookiename);
 		}
 
