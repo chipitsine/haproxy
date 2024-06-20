@@ -141,6 +141,10 @@ static int ha_wurfl_cfg_data_file(char **args, int section_type, struct proxy *c
 	}
 
 	global_wurfl.data_file = strdup(args[1]);
+	if (global_wurfl.data_file == NULL) {
+		memprintf(err, "WURFL: Insufficient memory.\n");
+		return -1;
+	}
 	return 0;
 }
 
@@ -154,6 +158,10 @@ static int ha_wurfl_cfg_cache(char **args, int section_type, struct proxy *curpx
 	}
 
 	global_wurfl.cache_size = strdup(args[1]);
+	if (global_wurfl.cache_size == NULL) {
+		memprintf(err, "WURFL: Insufficient memory.\n");
+		return -1;
+	}
 	return 0;
 }
 
@@ -204,6 +212,10 @@ static int ha_wurfl_cfg_information_list(char **args, int section_type, struct p
 		}
 
 		wi->data.name = strdup(args[argIdx]);
+		if (wi->data.name == NULL) {
+			memprintf(err, "WURFL: Error allocating memory.\n");
+			return -1;
+		}
 		wi->data.type = HA_WURFL_DATA_TYPE_UNKNOWN;
 		wi->data.func_callback = NULL;
 		LIST_APPEND(&global_wurfl.information_list, &wi->list);
@@ -234,6 +246,10 @@ static int ha_wurfl_cfg_patch_file_list(char **args, int section_type, struct pr
 		}
 
 		wp->patch_file_path = strdup(args[argIdx]);
+		if (wp->patch_file_path == NULL) {
+			memprintf(err, "WURFL: Error allocating memory.\n");
+			return -1;
+		}
 		LIST_APPEND(&global_wurfl.patch_file_list, &wp->list);
 		++argIdx;
 	}
