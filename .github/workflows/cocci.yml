@@ -1,0 +1,21 @@
+name: cocci
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  musl:
+      name: gcc
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coccinelle
+      - name: Run
+        run: |
+          spatch --sp-file istrdup.cocci --dir .
