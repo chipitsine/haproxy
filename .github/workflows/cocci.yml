@@ -18,4 +18,4 @@ jobs:
           sudo apt-get install -y coccinelle
       - name: Run
         run: |
-          spatch --sp-file istrdup.cocci --dir .
+          spatch --sp-file strdup.cocci --dir .
