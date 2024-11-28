@@ -154,7 +154,9 @@ jobs:
       run: |
         mkdir ${TMPDIR}
         make reg-tests VTEST_PROGRAM=../vtest/vtest REGTESTS_TYPES=broken,slow || echo 'we ignore failure'
-        grep -r SUMMARY ${TMPDIR}
+        echo 'point 1'
+        grep -r SUMMARY ${TMPDIR} || echo 'we ignore failure'
+        echo 'point 2'
 
     - name: Config syntax check memleak smoke testing
       if: ${{ contains(matrix.name, 'ASAN') }}
