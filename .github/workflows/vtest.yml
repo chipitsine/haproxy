@@ -146,6 +146,16 @@ jobs:
         ulimit -n 65536
         ulimit -c unlimited
         make reg-tests VTEST_PROGRAM=../vtest/vtest REGTESTS_TYPES=default,bug,devel
+
+    - name: Run broken VTest in ASAN only
+      if: ${{ contains(matrix.name, 'ASAN') }}
+      env:
+        TMPDIR: /tmp/asan
+      run: |
+        mkdir ${TMPDIR}
+        make reg-tests VTEST_PROGRAM=../vtest/vtest REGTESTS_TYPES=broken,slow || echo 'we ignore failure'
+        grep -r SUMMARY ${TMPDIR}
+
     - name: Config syntax check memleak smoke testing
       if: ${{ contains(matrix.name, 'ASAN') }}
       run: |
