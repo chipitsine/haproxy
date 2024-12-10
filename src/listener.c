@@ -2369,8 +2369,11 @@ static int bind_parse_name(char **args, int cur_arg, struct proxy *px, struct bi
 		return ERR_ALERT | ERR_FATAL;
 	}
 
-	list_for_each_entry(l, &conf->listeners, by_bind)
+	list_for_each_entry(l, &conf->listeners, by_bind) {
 		l->name = strdup(args[cur_arg + 1]);
+		if (!l->name)
+			return ERR_ALERT | ERR_FATAL;
+	}
 
 	return 0;
 }
