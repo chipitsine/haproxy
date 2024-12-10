@@ -5663,7 +5663,10 @@ static int cfg_parse_h1_headers_case_adjust_file(char **args, int section_type, 
 	}
 	free(hdrs_map.name);
 	hdrs_map.name = strdup(args[1]);
-        return 0;
+	if (!hdrs_map.name)
+		return -1;
+
+    return 0;
 }
 
 /* config parser for global "tune.h1.zero-copy-fwd-recv" */
