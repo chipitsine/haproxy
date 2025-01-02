@@ -107,6 +107,10 @@ static int _51d_data_file(char **args, int section_type, struct proxy *curpx,
 	if (global_51degrees.data_file_path)
 		free(global_51degrees.data_file_path);
 	global_51degrees.data_file_path = strdup(args[1]);
+	if (global_51degrees.data_file_path == NULL) {
+		memprintf(err,"Out of memory.");
+		return -1;
+	}
 
 	return 0;
 }
@@ -122,17 +126,26 @@ static int _51d_property_name_list(char **args, int section_type, struct proxy *
 		memprintf(err,
 		          "'%s' expects at least one 51Degrees property name.",
 		          args[0]);
-		return -1;
+		goto fail;
 	}
 
 	while (*(args[cur_arg])) {
 		name = calloc(1, sizeof(*name));
 		name->name = strdup(args[cur_arg]);
+		if (name->name == NULL) {
+			memprintf(err,"Out of memory.");
+			goto fail_free_name;
+		}
 		LIST_APPEND(&global_51degrees.property_names, &name->list);
 		++cur_arg;
 	}
 
 	return 0;
+
+fail_free_name:
+	free(name);
+fail:
+	return -1;
 }
 
 static int _51d_property_separator(char **args, int section_type, struct proxy *curpx,
