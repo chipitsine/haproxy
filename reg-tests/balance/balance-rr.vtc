@@ -35,6 +35,15 @@ haproxy h1 -arg "-L A" -conf {
         server srv2 ${s2_addr}:${s2_port}
         server srv3 ${s3_addr}:${s3_port}
         server srv4 ${s4_addr}:${s4_port}
+
+    .if feature(PROMEX)
+    frontend prometheus
+        bind "fd@${prometheus}"
+        mode http
+        http-request use-service prometheus-exporter
+        no log
+    .endif
+
 } -start
 
 client c1 -connect ${h1_px_sock} {
@@ -71,3 +80,13 @@ client c5 -connect ${h1_px_sock} {
     expect resp.status == 200
     expect resp.http.Server ~ s1
 } -run
+
+.if feature(PROMEX)
+shell {
+    HOST=${h1_prometheus_addr}
+    if [ "${h1_prometheus_addr}" = "::1" ] ; then
+        HOST="\[::1\]"
+    fi
+    curl -i -k https://$HOST:${h1_prometheus_port}
+}
+.endif
