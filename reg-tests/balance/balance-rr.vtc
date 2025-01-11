@@ -87,6 +87,6 @@ shell {
         if [ "${h1_fe1_addr}" = "::1" ] ; then
             HOST="\[::1\]"
         fi
-        curl -i -k https://$HOST:${h1_prometheus_port}
+        curl -i -k https://$HOST:${h1_prometheus_port} | prom/promtool check metrics
     fi
 }
