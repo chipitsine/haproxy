@@ -79,7 +79,7 @@ jobs:
         key: ot-${{ matrix.CC }}-${{ env.OT_CPP_VERSION }}-${{ contains(matrix.name, 'ASAN') }}
 
     - name: Download promtool
-      if: ${{ contains(matrix.FLAGS, 'PROMEX') }}
+      if: ${{ contains(matrix.FLAGS, 'USE_PROMEX=1') }}
       run: |
         wget https://github.com/prometheus/prometheus/releases/download/v3.1.0/prometheus-3.1.0.linux-amd64.tar.gz
         tar xvf prometheus-3.1.0.linux-amd64.tar.gz -C prom --strip-components=1
