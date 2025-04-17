@@ -32,7 +32,7 @@ jobs:
       - name: Install apt dependencies
         run: |
           sudo apt-get update -o Acquire::Languages=none -o Acquire::Translation=none
-          sudo apt-get --no-install-recommends -y install socat gdb
+          sudo apt-get --no-install-recommends -y install socat gdb jose
       - name: Install AWS-LC
         if: ${{ steps.cache_ssl.outputs.cache-hit != 'true' }}
         run: env ${{ steps.get_aws_lc_release.outputs.result }} scripts/build-ssl.sh
