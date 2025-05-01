@@ -180,7 +180,7 @@ def main(ref_name):
                 "CC": CC,
                 "FLAGS": [
                     "USE_OBSOLETE_LINKER=1",
-                    'ARCH_FLAGS="-g -fsanitize=address"',
+                    'ARCH_FLAGS="-g -fsanitize=thread"',
                     'OPT_CFLAGS="-O1"',
                     "USE_ZLIB=1",
                     "USE_OT=1",
