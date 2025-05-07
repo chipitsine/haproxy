@@ -2067,13 +2067,20 @@ static int peer_treat_updatemsg(struct appctx *appctx, struct peer *p, int updt,
 	ts->expire = tick_add(now_ms, expire);
 
 	HA_RWLOCK_WRUNLOCK(STK_SESS_LOCK, &ts->lock);
-	stktable_touch_remote(table, ts, 1);
+
+	/* we MUST NOT dec the refcnt yet because stktable_trash_oldest() or
+	 * process_table_expire() could execute between the two next lines.
+	 */
+	stktable_touch_remote(table, ts, 0);
 
 	/* Entry was just learned from a peer, we want to notify this peer
 	 * if we happen to modify it. Thus let's consider at least one
 	 * peer has seen the update (ie: the peer that sent us the update)
 	 */
 	HA_ATOMIC_STORE(&ts->seen, 1);
+
+	/* only now we can decrement the refcnt */
+	HA_ATOMIC_DEC(&ts->ref_cnt);
 
 	if (wts) {
 		/* Start over the message decoding for wts as we got a valid stksess
@@ -2639,7 +2646,10 @@ static inline int peer_send_msgs(struct appctx *appctx,
 			if (!(peer->flags & PEER_F_TEACH_PROCESS)) {
 				int must_send;
 
-				HA_RWLOCK_RDLOCK(STK_TABLE_UPDT_LOCK, &st->table->updt_lock);
+				if (HA_RWLOCK_TRYRDLOCK(STK_TABLE_UPDT_LOCK, &st->table->updt_lock)) {
+					applet_have_more_data(appctx);
+					return -1;
+				}
 				must_send = (peer->learnstate == PEER_LR_ST_NOTASSIGNED) && (st->last_pushed != st->table->localupdate);
 				HA_RWLOCK_RDUNLOCK(STK_TABLE_UPDT_LOCK, &st->table->updt_lock);
 
@@ -3413,6 +3423,7 @@ static void __process_running_peer_sync(struct task *task, struct peers *peers, 
 {
 	struct peer *peer;
 	struct shared_table *st;
+	int must_resched = 0;
 
 	/* resync timeout set to TICK_ETERNITY means we just start
 	 * a new process and timer was not initialized.
@@ -3440,7 +3451,10 @@ static void __process_running_peer_sync(struct task *task, struct peers *peers, 
 
 	/* For each session */
 	for (peer = peers->remote; peer; peer = peer->next) {
-		HA_SPIN_LOCK(PEER_LOCK, &peer->lock);
+		if (HA_SPIN_TRYLOCK(PEER_LOCK, &peer->lock) != 0) {
+			must_resched = 1;
+			continue;
+		}
 
 		sync_peer_learn_state(peers, peer);
 		sync_peer_app_state(peers, peer);
@@ -3567,12 +3581,13 @@ static void __process_running_peer_sync(struct task *task, struct peers *peers, 
 		HA_ATOMIC_OR(&peers->flags, PEERS_F_RESYNC_REMOTE_FINISHED|PEERS_F_DBG_RESYNC_REMOTETIMEOUT);
 	}
 
-	if ((peers->flags & PEERS_RESYNC_STATEMASK) != PEERS_RESYNC_FINISHED) {
+	if (!must_resched && (peers->flags & PEERS_RESYNC_STATEMASK) != PEERS_RESYNC_FINISHED) {
 		/* Resync not finished*/
 		/* reschedule task to resync timeout if not expired, to ended resync if needed */
 		if (!tick_is_expired(peers->resync_timeout, now_ms))
 			task->expire = tick_first(task->expire, peers->resync_timeout);
-	}
+	} else if (must_resched)
+		task_wakeup(task, TASK_WOKEN_OTHER);
 }
 
 /* Process the sync task for a stopping process. It is called from process_peer_sync() only */

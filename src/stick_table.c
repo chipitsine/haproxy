@@ -144,6 +144,14 @@ int __stksess_kill(struct stktable *t, struct stksess *ts)
 	if (HA_ATOMIC_LOAD(&ts->ref_cnt))
 		return 0;
 
+	/* make sure we're no longer in the updates list */
+	MT_LIST_DELETE(&ts->pend_updts);
+
+	/* ... and that nobody added us in between */
+	if (HA_ATOMIC_LOAD(&ts->ref_cnt))
+		return 0;
+
+	/* ... and that we didn't leave the update list for the tree */
 	if (ts->upd.node.leaf_p) {
 		updt_locked = 1;
 		HA_RWLOCK_WRLOCK(STK_TABLE_UPDT_LOCK, &t->updt_lock);
@@ -271,6 +279,7 @@ static struct stksess *__stksess_init(struct stktable *t, struct stksess * ts)
 	ts->key.node.leaf_p = NULL;
 	ts->exp.node.leaf_p = NULL;
 	ts->upd.node.leaf_p = NULL;
+	MT_LIST_INIT(&ts->pend_updts);
 	ts->expire = tick_add(now_ms, MS_TO_TICKS(t->expire));
 	HA_RWLOCK_INIT(&ts->lock);
 	return ts;
@@ -286,8 +295,8 @@ int stktable_trash_oldest(struct stktable *t, int to_batch)
 {
 	struct stksess *ts;
 	struct eb32_node *eb;
-	int max_search = to_batch * 2; // no more than 50% misses
-	int max_per_shard = (to_batch + CONFIG_HAP_TBL_BUCKETS - 1) / CONFIG_HAP_TBL_BUCKETS;
+	int max_search; // no more than 50% misses
+	int max_per_shard;
 	int done_per_shard;
 	int batched = 0;
 	int updt_locked;
@@ -295,6 +304,12 @@ int stktable_trash_oldest(struct stktable *t, int to_batch)
 	int shard;
 
 	shard = 0;
+
+	if (to_batch > STKTABLE_MAX_UPDATES_AT_ONCE)
+		to_batch = STKTABLE_MAX_UPDATES_AT_ONCE;
+
+	max_search = to_batch * 2; // no more than 50% misses
+	max_per_shard = (to_batch + CONFIG_HAP_TBL_BUCKETS - 1) / CONFIG_HAP_TBL_BUCKETS;
 
 	while (batched < to_batch) {
 		done_per_shard = 0;
@@ -362,20 +377,19 @@ int stktable_trash_oldest(struct stktable *t, int to_batch)
 			 * with that lock held, will grab a ref_cnt before releasing the
 			 * lock. So we must take this lock as well and check the ref_cnt.
 			 */
-			if (ts->upd.node.leaf_p) {
-				if (!updt_locked) {
-					updt_locked = 1;
-					HA_RWLOCK_WRLOCK(STK_TABLE_UPDT_LOCK, &t->updt_lock);
-				}
-				/* now we're locked, new peers can't grab it anymore,
-				 * existing ones already have the ref_cnt.
-				 */
-				if (HA_ATOMIC_LOAD(&ts->ref_cnt))
-					continue;
+			if (!updt_locked) {
+				updt_locked = 1;
+				HA_RWLOCK_WRLOCK(STK_TABLE_UPDT_LOCK, &t->updt_lock);
 			}
+			/* now we're locked, new peers can't grab it anymore,
+			 * existing ones already have the ref_cnt.
+			 */
+			if (HA_ATOMIC_LOAD(&ts->ref_cnt))
+				continue;
 
 			/* session expired, trash it */
 			ebmb_delete(&ts->key);
+			MT_LIST_DELETE(&ts->pend_updts);
 			eb32_delete(&ts->upd);
 			__stksess_free(t, ts);
 			batched++;
@@ -585,9 +599,7 @@ struct stksess *stktable_lookup(struct stktable *t, struct stksess *ts)
  */
 void stktable_touch_with_exp(struct stktable *t, struct stksess *ts, int local, int expire, int decrefcnt)
 {
-	struct eb32_node * eb;
-	int use_wrlock = 0;
-	int do_wakeup = 0;
+	int did_append = 0;
 
 	if (expire != HA_ATOMIC_LOAD(&ts->expire)) {
 		/* we'll need to set the expiration and to wake up the expiration timer .*/
@@ -602,63 +614,24 @@ void stktable_touch_with_exp(struct stktable *t, struct stksess *ts, int local, 
 			 * scheduled for at least one peer.
 			 */
 			if (!ts->upd.node.leaf_p || _HA_ATOMIC_LOAD(&ts->seen)) {
-				/* Time to upgrade the read lock to write lock */
-				HA_RWLOCK_WRLOCK(STK_TABLE_UPDT_LOCK, &t->updt_lock);
-				use_wrlock = 1;
-
-				/* here we're write-locked */
-
-				ts->seen = 0;
-				ts->upd.key = ++t->update;
-				t->localupdate = t->update;
-				eb32_delete(&ts->upd);
-				eb = eb32_insert(&t->updates, &ts->upd);
-				if (eb != &ts->upd)  {
-					eb32_delete(eb);
-					eb32_insert(&t->updates, &ts->upd);
-				}
+				_HA_ATOMIC_STORE(&ts->updt_is_local, 1);
+				did_append = MT_LIST_TRY_APPEND(&t->pend_updts[tgid - 1], &ts->pend_updts);
 			}
-			do_wakeup = 1;
 		}
 		else {
-			/* Note: we land here when learning new entries from
-			 * remote peers. We hold one ref_cnt so the entry
-			 * cannot vanish under us, however if two peers create
-			 * the same key at the exact same time, we must be
-			 * careful not to perform two parallel inserts! Hence
-			 * we need to first check leaf_p to know if the entry
-			 * is new, then lock the tree and check the entry again
-			 * (since another thread could have created it in the
-			 * mean time).
-			 */
 			if (!ts->upd.node.leaf_p) {
-				/* Time to upgrade the read lock to write lock if needed */
-				HA_RWLOCK_WRLOCK(STK_TABLE_UPDT_LOCK, &t->updt_lock);
-				use_wrlock = 1;
-
-				/* here we're write-locked */
-				if (!ts->upd.node.leaf_p) {
-					ts->seen = 0;
-					ts->upd.key= (++t->update)+(2147483648U);
-					eb = eb32_insert(&t->updates, &ts->upd);
-					if (eb != &ts->upd) {
-						eb32_delete(eb);
-						eb32_insert(&t->updates, &ts->upd);
-					}
-				}
+				_HA_ATOMIC_STORE(&ts->updt_is_local, 0);
+				did_append = MT_LIST_TRY_APPEND(&t->pend_updts[tgid - 1], &ts->pend_updts);
 			}
 		}
 
-		/* drop the lock now */
-		if (use_wrlock)
-			HA_RWLOCK_WRUNLOCK(STK_TABLE_UPDT_LOCK, &t->updt_lock);
 	}
+
+	if (did_append)
+		tasklet_wakeup(t->updt_task);
 
 	if (decrefcnt)
 		HA_ATOMIC_DEC(&ts->ref_cnt);
-
-	if (do_wakeup)
-		task_wakeup(t->sync_task, TASK_WOKEN_MSG);
 }
 
 /* Update the expiration timer for <ts> but do not touch its expiration node.
@@ -809,6 +782,60 @@ struct stksess *stktable_get_entry(struct stktable *table, struct stktable_key *
 	return ts;
 }
 
+static struct task *stktable_add_pend_updates(struct task *t, void *ctx, unsigned int state)
+{
+	struct stktable *table = ctx;
+	struct eb32_node *eb;
+	int i, is_local, cur_tgid = tgid - 1, empty_tgid = 0;
+
+	HA_RWLOCK_WRLOCK(STK_TABLE_UPDT_LOCK, &table->updt_lock);
+	for (i = 0; i < STKTABLE_MAX_UPDATES_AT_ONCE; i++) {
+		struct stksess *stksess = MT_LIST_POP(&table->pend_updts[cur_tgid], typeof(stksess), pend_updts);
+
+		if (!stksess) {
+			empty_tgid++;
+			cur_tgid++;
+			if (cur_tgid == global.nbtgroups)
+                        cur_tgid = 0;
+
+			if (empty_tgid == global.nbtgroups)
+				break;
+			continue;
+		}
+		cur_tgid++;
+		empty_tgid = 0;
+		if (cur_tgid == global.nbtgroups)
+			cur_tgid = 0;
+		is_local = stksess->updt_is_local;
+		stksess->seen = 0;
+		if (is_local) {
+			stksess->upd.key = ++table->update;
+			table->localupdate = table->update;
+			eb32_delete(&stksess->upd);
+		} else {
+			stksess->upd.key = (++table->update) + (2147483648U);
+		}
+		eb = eb32_insert(&table->updates, &stksess->upd);
+		if (eb != &stksess->upd)  {
+			BUG_ON(1);
+			eb32_delete(eb);
+			eb32_insert(&table->updates, &stksess->upd);
+		}
+	}
+
+	HA_RWLOCK_WRUNLOCK(STK_TABLE_UPDT_LOCK, &table->updt_lock);
+
+	/* There's more to do, let's schedule another session */
+	if (empty_tgid < global.nbtgroups)
+		tasklet_wakeup(table->updt_task);
+
+	if (i > 0) {
+		/* We did at least one update, let's wake the sync task */
+		task_wakeup(table->sync_task, TASK_WOKEN_MSG);
+	}
+	return t;
+}
+
 /* Lookup for an entry with the same key and store the submitted
  * stksess if not found. This function locks the table either shared or
  * exclusively, and the refcount of the entry is increased.
@@ -864,7 +891,9 @@ struct task *process_table_expire(struct task *task, void *context, unsigned int
 	struct stktable *t = context;
 	struct stksess *ts;
 	struct eb32_node *eb;
+	int need_resched = 0;
 	int updt_locked;
+	int expired;
 	int looped;
 	int exp_next;
 	int task_exp;
@@ -877,6 +906,7 @@ struct task *process_table_expire(struct task *task, void *context, unsigned int
 		looped = 0;
 		HA_RWLOCK_WRLOCK(STK_TABLE_LOCK, &t->shards[shard].sh_lock);
 		eb = eb32_lookup_ge(&t->shards[shard].exps, now_ms - TIMER_LOOK_BACK);
+		expired = 0;
 
 		while (1) {
 			if (unlikely(!eb)) {
@@ -932,26 +962,33 @@ struct task *process_table_expire(struct task *task, void *context, unsigned int
 				continue;
 			}
 
+			if (updt_locked == 1) {
+				expired++;
+				if (expired == STKTABLE_MAX_UPDATES_AT_ONCE) {
+					need_resched = 1;
+					exp_next = TICK_ETERNITY;
+					goto out_unlock;
+				}
+			}
 			/* if the entry is in the update list, we must be extremely careful
 			 * because peers can see it at any moment and start to use it. Peers
 			 * will take the table's updt_lock for reading when doing that, and
 			 * with that lock held, will grab a ref_cnt before releasing the
 			 * lock. So we must take this lock as well and check the ref_cnt.
 			 */
-			if (ts->upd.node.leaf_p) {
-				if (!updt_locked) {
-					updt_locked = 1;
-					HA_RWLOCK_WRLOCK(STK_TABLE_UPDT_LOCK, &t->updt_lock);
-				}
-				/* now we're locked, new peers can't grab it anymore,
-				 * existing ones already have the ref_cnt.
-				 */
-				if (HA_ATOMIC_LOAD(&ts->ref_cnt))
-					continue;
+			if (!updt_locked) {
+				updt_locked = 1;
+				HA_RWLOCK_WRLOCK(STK_TABLE_UPDT_LOCK, &t->updt_lock);
 			}
+			/* now we're locked, new peers can't grab it anymore,
+			 * existing ones already have the ref_cnt.
+			 */
+			if (HA_ATOMIC_LOAD(&ts->ref_cnt))
+				continue;
 
 			/* session expired, trash it */
 			ebmb_delete(&ts->key);
+			MT_LIST_DELETE(&ts->pend_updts);
 			eb32_delete(&ts->upd);
 			__stksess_free(t, ts);
 		}
@@ -967,13 +1004,17 @@ struct task *process_table_expire(struct task *task, void *context, unsigned int
 		HA_RWLOCK_WRUNLOCK(STK_TABLE_LOCK, &t->shards[shard].sh_lock);
 	}
 
-	/* Reset the task's expiration. We do this under the lock so as not
-	 * to ruin a call to task_queue() in stktable_requeue_exp() if we
-	 * were to update with TICK_ETERNITY.
-	 */
-	HA_RWLOCK_WRLOCK(STK_TABLE_LOCK, &t->lock);
-	task->expire = task_exp;
-	HA_RWLOCK_WRUNLOCK(STK_TABLE_LOCK, &t->lock);
+	if (need_resched) {
+		task_wakeup(task, TASK_WOKEN_OTHER);
+	} else {
+		/* Reset the task's expiration. We do this under the lock so as not
+		 * to ruin a call to task_queue() in stktable_requeue_exp() if we
+		 * were to update with TICK_ETERNITY.
+		 */
+		HA_RWLOCK_WRLOCK(STK_TABLE_LOCK, &t->lock);
+		task->expire = task_exp;
+		HA_RWLOCK_WRUNLOCK(STK_TABLE_LOCK, &t->lock);
+	}
 
 	return task;
 }
@@ -988,6 +1029,7 @@ int stktable_init(struct stktable *t, char **err_msg)
 {
 	int peers_retval = 0;
 	int shard;
+	int i;
 
 	t->hash_seed = XXH64(t->id, t->idlen, 0);
 
@@ -1047,6 +1089,16 @@ int stktable_init(struct stktable *t, char **err_msg)
 
 		t->write_to.t = table;
 	}
+	t->pend_updts = calloc(global.nbtgroups, sizeof(*t->pend_updts));
+	if (!t->pend_updts)
+		goto mem_error;
+	for (i = 0; i < global.nbtgroups; i++)
+		MT_LIST_INIT(&t->pend_updts[i]);
+	t->updt_task = tasklet_new();
+	if (!t->updt_task)
+		goto mem_error;
+	t->updt_task->context = t;
+	t->updt_task->process = stktable_add_pend_updates;
 	return 1;
 
  mem_error:
@@ -1065,6 +1117,8 @@ void stktable_deinit(struct stktable *t)
 	if (!t)
 		return;
 	task_destroy(t->exp_task);
+	tasklet_free(t->updt_task);
+	ha_free(&t->pend_updts);
 	pool_destroy(t->pool);
 }
 
@@ -1086,10 +1140,16 @@ struct stktable_type stktable_types[SMP_TYPES] = {
  */
 int stktable_parse_type(char **args, int *myidx, unsigned long *type, size_t *key_size, const char *file, int linenum)
 {
+	const char *kw = args[*myidx];
+
+	/* Planning for future changes, for now "ipv4" is an alias for "ip" */
+	if (strcmp(kw, "ipv4") == 0)
+		kw = "ip";
+
 	for (*type = 0; *type < SMP_TYPES; (*type)++) {
 		if (!stktable_types[*type].kw)
 			continue;
-		if (strcmp(args[*myidx], stktable_types[*type].kw) != 0)
+		if (strcmp(kw, stktable_types[*type].kw) != 0)
 			continue;
 
 		*key_size =  stktable_types[*type].default_size;
@@ -3189,8 +3249,8 @@ smp_fetch_sc_stkctr(struct session *sess, struct stream *strm, const struct arg 
 		/* sc_* variant, args[0] = ctr# (mandatory) */
 		num = args[arg++].data.sint;
 	}
-
-	BUG_ON(num > 9, "unexpected value");
+	else
+		BUG_ON(num > 9, "unexpected value");
 
 	/* Here, <num> contains the counter number from 0 to 9 for
 	 * the sc[0-9]_ form, or even higher using sc_(num) if needed.

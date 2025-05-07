@@ -3,7 +3,7 @@
                           Configuration Manual
                          ----------------------
                               version 3.2
-                              2025/04/30
+                              2025/05/02
 
 
 This document covers the configuration language as implemented in the version
@@ -4085,6 +4085,9 @@ tune.lua.bool-sample-conversion { normal | pre-3.1-bug }
   behavior. It is recommended to set this option to "normal" after ensuring
   that in-use Lua scripts are properly handling bool haproxy samples as booleans.
 
+  This setting must be set before any "lua-load" or "lua-load-per-thread"
+  directive for it to be considered, else it is ignored.
+
 tune.lua.burst-timeout <timeout>
   The "burst" execution timeout applies to any Lua handler. If the handler
   fails to finish or yield before timeout is reached, it will be aborted to
@@ -5717,6 +5720,8 @@ section. It allows to configure certificate definitions and which files should
 be loaded in it. A certificate definition must be written before it is used
 elsewhere in the configuration.
 
+crt-store [<name>]
+
 The "crt-store" takes an optional name in argument. If a name is specified,
 every certificate of this store must be referenced using "@<name>/<crt>" or
 "@<name>/<alias>".
@@ -5920,6 +5925,8 @@ ocsp-update [ off | on ]
 3.13. ACME
 ----------
 
+acme <name>
+
 The ACME protocol can be configured using the "acme" section. The section takes
 a "<name>" argument, which is used to link a certificate to the section.
 
@@ -5933,8 +5940,14 @@ the disk is not supposed to be done after the configuration is loaded, because
 it could block the event loop, blocking the traffic on the same thread. Meaning
 that the certificates and keys generated from HAProxy will need to be dumped
 from outside HAProxy using "dump ssl cert" on the stats socket.
-The generation is not scheduled and must be triggered using the CLI command
-"acme renew". See also "acme ps" in the management guide.
+External Account Binding (EAB) is not supported.
+
+The ACME scheduler starts at HAProxy startup, it will loop over the
+certificates and start an ACME renewal task when the notAfter task is past
+curtime + (notAfter - notBefore) / 12, or 7 days if notBefore is not defined.
+The scheduler will then sleep and wakeup after 12 hours.
+It is possible to start manually a renewal task with "acme renew'.
+See also "acme status" in the management guide.
 
 The following keywords are usable in the ACME section:
 
@@ -13545,7 +13558,7 @@ stick store-request <pattern> [table <table>] [{if | unless} <condition>]
   See also : "stick-table", "stick on", about ACLs and sample fetching.
 
 
-stick-table type {ip | integer | string [len <length>] | binary [len <length>]}
+stick-table type {ip|ipv4|ipv6|integer|string [len <length>]|binary [len <length>]}
             size <size> [expire <expire>] [nopurge] [peers <peersect>] [srvkey <srvkey>]
             [write-to <wtable>] [store <data_type>]* [brates-factor <factor>]
             [recv-only]
@@ -13557,7 +13570,14 @@ stick-table type {ip | integer | string [len <length>] | binary [len <length>]}
                                  no    |    yes   |   yes  |   yes
 
   Arguments :
-    ip         a table declared with "type ip" will only store IPv4 addresses.
+    ip         This type should be avoided in favor of a more explicit one such
+               as "ipv4" or "ipv6". Prior to version 3.2 it was the only way to
+               configure IPv4. In 3.2, "ip" is an alias for "ipv4", and "ipv4"
+               is preferred. In a future version, "ip" will instead correspond
+               to "ipv6". It is only meant to ease the transition from pre-3.2
+               to post-3.2.
+
+    ipv4       a table declared with this type will only store IPv4 addresses.
                This form is very compact (about 50 bytes per entry) and allows
                very fast entry lookup and stores with almost no overhead. This
                is mainly used to store client source IP addresses.
