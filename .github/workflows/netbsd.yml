@@ -21,4 +21,4 @@ jobs:
           prepare: |
             /usr/sbin/pkg_add gmake curl python313
           run: |
-            scripts/build-vtest.sh && gmake CC=gcc TARGET=netbsd ERR=1 USE_OPENSSL=1 USE_LUA=1 USE_PCRE2=1 USE_PCRE2_JIT=1 USE_PROMEX=1 USE_ZLIB=1
+            PYTHON3=python313 scripts/build-vtest.sh && gmake CC=gcc TARGET=netbsd ERR=1 USE_OPENSSL=1 USE_LUA=1 USE_PCRE2=1 USE_PCRE2_JIT=1 USE_PROMEX=1 USE_ZLIB=1
