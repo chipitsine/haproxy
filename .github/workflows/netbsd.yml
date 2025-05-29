@@ -19,8 +19,7 @@ jobs:
         uses: vmactions/netbsd-vm@v1
         with:
           prepare: |
-            /usr/sbin/pkg_add gmake curl python313
+            /usr/sbin/pkg_add gmake curl python313 pcre2
           run: |
-            find / -name pcre2.h -print
             PYTHON3=python3.13 scripts/build-vtest.sh
             gmake CC=gcc TARGET=netbsd ERR=1 USE_OPENSSL=1 USE_LUA=1 USE_PCRE2=1 USE_PCRE2_JIT=1 USE_PROMEX=1 USE_ZLIB=1

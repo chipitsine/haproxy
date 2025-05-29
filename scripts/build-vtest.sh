@@ -26,7 +26,7 @@ set -e
 if test -f /opt/homebrew/include/pcre2.h; then
    make -j${CPUS} FLAGS="-O2 -s -Wall" INCS="-I. -Isrc -Ilib -I/usr/local/include -I/opt/homebrew/include -pthread"
 elif test -f /usr/pkg/include/pcre2.h; then
-   make -j${CPUS} FLAGS="-O2 -s -Wall -Wno-char-subscripts" INCS="-I. -Isrc -Ilib -I/usr/local/include -I/usr/pkg/include"
+   make -j${CPUS} FLAGS="-O2 -s -Wall -Wno-char-subscripts" INCS="-I. -Isrc -Ilib -I/usr/local/include"
 else
    make -j${CPUS} FLAGS="-O2 -s -Wall"
 fi
