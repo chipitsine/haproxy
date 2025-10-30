@@ -155,6 +155,13 @@ jobs:
       id: unittests
       run: |
         make unit-tests
+
+    - name: TMPDIR
+      id: tmpdir
+      if: always()
+      run: |
+        echo ${TMPDIR}
+
     - name: Show Unit-Tests results
       if: ${{ failure() && steps.unittests.outcome == 'failure' }}
       run: |
