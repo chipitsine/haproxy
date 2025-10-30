@@ -143,7 +143,10 @@ jobs:
         make reg-tests VTEST_PROGRAM=../vtest/vtest REGTESTS_TYPES=default,bug,devel
     - name: Show VTest results
       if: ${{ failure() && steps.vtest.outcome == 'failure' }}
+      shell: bash
       run: |
+        echo ${TMPDIR}
+        echo ${TMPDIR:-/tmp}
         for folder in ${TMPDIR:-/tmp}/haregtests-*/vtc.*; do
           printf "::group::"
           cat $folder/INFO
