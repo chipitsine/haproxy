@@ -289,6 +289,9 @@ _version() {
   echo ${1}${2#$prf2}${3#$prf3}${4#$prf4}
 }
 
+echo '0-0-0-0-0-'
+echo $TMPDIR
+echo '0-0-0-0-0-'
 
 HAPROXY_PROGRAM="${HAPROXY_PROGRAM:-${PWD}/haproxy}"
 HAPROXY_ARGS="${HAPROXY_ARGS--dM -dI -dW}"
