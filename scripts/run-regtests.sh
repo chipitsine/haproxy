@@ -395,6 +395,10 @@ fi
 
 if [ -d "${TESTDIR}" ]; then
   echo "########################## Gathering results ##########################"
+  echo $TESTDIR
+  echo '9-9-9-9-9-9'
+  ls $TESTDIR
+  echo '9-9-9-9-9-9'
   export TESTDIR
   find "$TESTDIR" -type d -name "vtc.*" -exec sh -c 'for i; do
     if [ ! -e "$i/LOG" ] ; then continue; fi
