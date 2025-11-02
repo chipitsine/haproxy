@@ -47,7 +47,7 @@ jobs:
       - name: Show VTest results
         if: ${{ failure() && steps.vtest.outcome == 'failure' }}
         run: |
-          for folder in ${TMPDIR:-/tmp}/haregtests-*/vtc.*; do
+          for folder in ${VTESTTMPDIR:-/tmp}/haregtests-*/vtc.*; do
             printf "::group::"
             cat $folder/INFO
             cat $folder/LOG
@@ -71,7 +71,7 @@ jobs:
       - name: Show Unit-Tests results
         if: ${{ failure() && steps.unittests.outcome == 'failure' }}
         run: |
-          for result in ${TMPDIR:-/tmp}/ha-unittests-*/results/res.*; do
+          for result in ${VTESTTMPDIR:-/tmp}/ha-unittests-*/results/res.*; do
             printf "::group::"
             cat $result
             echo "::endgroup::"

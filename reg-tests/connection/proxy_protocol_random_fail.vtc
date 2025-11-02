@@ -41,7 +41,7 @@ haproxy h1 -conf {
         log global
 
     listen http
-        bind unix@"${tmpdir}/http.socket" accept-proxy name ssl-offload-http
+        bind unix@"${vtesttmpdir}/http.socket" accept-proxy name ssl-offload-http
         option forwardfor
 
     listen ssl-offload-http

@@ -39,9 +39,9 @@ jobs:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
       fail-fast: false
     env:
-      # Configure a short TMPDIR to prevent failures due to long unix socket
+      # Configure a short VTESTTMPDIR to prevent failures due to long unix socket
       # paths.
-      TMPDIR: /tmp
+      VTESTTMPDIR: /tmp
       OT_CPP_VERSION: 1.6.0
     steps:
     - uses: actions/checkout@v5
@@ -148,7 +148,7 @@ jobs:
       run: |
         echo ${TMPDIR}
         echo ${TMPDIR:-/tmp}
-        for folder in ${TMPDIR:-/tmp}/haregtests-*/vtc.*; do
+        for folder in ${VTESTTMPDIR:-/tmp}/haregtests-*/vtc.*; do
           printf "::group::"
           cat $folder/INFO
           cat $folder/LOG
@@ -169,7 +169,7 @@ jobs:
     - name: Show Unit-Tests results
       if: ${{ failure() && steps.unittests.outcome == 'failure' }}
       run: |
-        for result in ${TMPDIR:-/tmp}/ha-unittests-*/results/res.*; do
+        for result in ${VTESTTMPDIR:-/tmp}/ha-unittests-*/results/res.*; do
           printf "::group::"
           cat $result
           echo "::endgroup::"
