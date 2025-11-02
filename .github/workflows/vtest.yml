@@ -145,6 +145,7 @@ jobs:
       if: ${{ failure() && steps.vtest.outcome == 'failure' }}
       shell: bash
       run: |
+        ls /tmp | grep haregtests
         for folder in ${VTESTTMPDIR:-/tmp}/haregtests-*/vtc.*; do
           printf "::group::"
           cat $folder/INFO
