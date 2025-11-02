@@ -290,7 +290,7 @@ _version() {
 }
 
 echo '0-0-0-0-0-'
-echo $TMPDIR
+env
 echo '0-0-0-0-0-'
 
 HAPROXY_PROGRAM="${HAPROXY_PROGRAM:-${PWD}/haproxy}"
