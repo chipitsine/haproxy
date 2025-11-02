@@ -140,14 +140,11 @@ jobs:
     - name: Run VTest for HAProxy ${{ steps.show-version.outputs.version }}
       id: vtest
       run: |
-        export TMPDIR=/tmp
         make reg-tests VTEST_PROGRAM=../vtest/vtest REGTESTS_TYPES=default,bug,devel
     - name: Show VTest results
       if: ${{ failure() && steps.vtest.outcome == 'failure' }}
       shell: bash
       run: |
-        echo ${TMPDIR}
-        echo ${TMPDIR:-/tmp}
         for folder in ${VTESTTMPDIR:-/tmp}/haregtests-*/vtc.*; do
           printf "::group::"
           cat $folder/INFO
@@ -159,12 +156,6 @@ jobs:
       id: unittests
       run: |
         make unit-tests
-
-    - name: TMPDIR
-      id: tmpdir
-      if: always()
-      run: |
-        echo ${TMPDIR}
 
     - name: Show Unit-Tests results
       if: ${{ failure() && steps.unittests.outcome == 'failure' }}
