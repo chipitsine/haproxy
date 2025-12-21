@@ -56,22 +56,7 @@ name: Check Spelling
 #     # remove `experimental_apply_changes_via_bot: 1`
 #     ... otherwise adjust the `with:` as you wish
 
-on:
-  push:
-    branches:
-    - "**"
-    tags-ignore:
-    - "**"
-  pull_request_target:
-    branches:
-    - "**"
-    types:
-    - 'opened'
-    - 'reopened'
-    - 'synchronize'
-  issue_comment:
-    types:
-    - 'created'
+on: [ push ]
 
 jobs:
   spelling:
