@@ -473,6 +473,13 @@ static int promex_dump_global_metrics(struct appctx *appctx, struct htx *htx)
 				val = mkf_u32(FN_GAUGE, 1);
 				break;
 
+#ifndef USE_ZLIB
+			case ST_I_INF_ZLIB_MEM_USAGE:
+			case ST_I_INF_MAX_ZLIB_MEM_USAGE:
+				/* Skip zlib metrics when built with libslz */
+				continue;
+#endif
+
 			default:
 				break;
 		}
