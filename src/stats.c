@@ -142,8 +142,10 @@ const struct stat_col stat_cols_info[ST_I_INF_MAX] = {
 	[ST_I_INF_COMPRESS_BPS_IN]                = { .name = "CompressBpsIn",               .alt_name = "http_comp_bytes_in_total",      .desc = "Number of bytes submitted to the HTTP compressor in this worker process over the last second" },
 	[ST_I_INF_COMPRESS_BPS_OUT]               = { .name = "CompressBpsOut",              .alt_name = "http_comp_bytes_out_total",     .desc = "Number of bytes emitted by the HTTP compressor in this worker process over the last second" },
 	[ST_I_INF_COMPRESS_BPS_RATE_LIM]          = { .name = "CompressBpsRateLim",          .alt_name = "limit_http_comp",               .desc = "Limit of CompressBpsOut beyond which HTTP compression is automatically disabled" },
+#ifdef USE_ZLIB
 	[ST_I_INF_ZLIB_MEM_USAGE]                 = { .name = "ZlibMemUsage",                .alt_name = "current_zlib_memory",           .desc = "Amount of memory currently used by HTTP compression on the current worker process (in bytes)" },
 	[ST_I_INF_MAX_ZLIB_MEM_USAGE]             = { .name = "MaxZlibMemUsage",             .alt_name = "max_zlib_memory",               .desc = "Limit on the amount of memory used by HTTP compression above which it is automatically disabled (in bytes, see global.maxzlibmem)" },
+#endif
 	[ST_I_INF_TASKS]                          = { .name = "Tasks",                       .alt_name = "current_tasks",                 .desc = "Total number of tasks in the current worker process (active + sleeping)" },
 	[ST_I_INF_RUN_QUEUE]                      = { .name = "Run_queue",                   .alt_name = "current_run_queue",             .desc = "Total number of active tasks+tasklets in the current worker process" },
 	[ST_I_INF_IDLE_PCT]                       = { .name = "Idle_pct",                    .alt_name = "idle_time_percent",             .desc = "Percentage of last second spent waiting in the current worker thread" },
