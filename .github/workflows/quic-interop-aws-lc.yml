@@ -25,7 +25,7 @@ jobs:
         id: push
         uses: docker/build-push-action@v6
         with:
-          context: https://github.com/haproxytech/haproxy-qns.git
+          context: https://github.com/chipitsine/haproxy-qns.git#f484c002ef7d01f4b34883eec133f1eb626db8f9
           platforms: linux/amd64
           build-args: |
             SSLLIB=AWS-LC
