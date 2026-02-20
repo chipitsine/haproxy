@@ -38,13 +38,13 @@ jobs:
 
       - name: Run
         run: |
-          git clone https://github.com/quic-interop/quic-interop-runner
+          git clone https://github.com/chipitsine/quic-interop-runner
           cd quic-interop-runner
           pip install -r requirements.txt --break-system-packages
-          python run.py -j result.json -l logs-chrome -r haproxy=local:aws-lc -t "http3" -c chrome -s haproxy
-          python run.py -j result.json -l logs-picoquic -r haproxy=local:aws-lc -t "handshake,transfer,longrtt,chacha20,multiplexing,retry,resumption,zerortt,http3,blackhole,keyupdate,ecn,amplificationlimit,handshakeloss,transferloss,handshakecorruption,transfercorruption,ipv6,v2" -c picoquic -s haproxy
-          python run.py -j result.json -l logs-quic-go -r haproxy=local:aws-lc -t "handshake,transfer,longrtt,chacha20,multiplexing,retry,resumption,zerortt,http3,blackhole,keyupdate,ecn,amplificationlimit,handshakeloss,transferloss,handshakecorruption,transfercorruption,ipv6,v2" -c quic-go -s haproxy
-          python run.py -j result.json -l logs-ngtcp2 -r haproxy=local:aws-lc -t "handshake,transfer,longrtt,chacha20,multiplexing,retry,resumption,zerortt,http3,blackhole,keyupdate,ecn,amplificationlimit,handshakeloss,transferloss,handshakecorruption,transfercorruption,ipv6,v2" -c ngtcp2 -s haproxy
+          python run.py -d -j result.json -l logs-chrome -r haproxy=local:aws-lc -t "http3" -c chrome -s haproxy
+          python run.py -d -j result.json -l logs-picoquic -r haproxy=local:aws-lc -t "handshake,transfer,longrtt,chacha20,multiplexing,retry,resumption,zerortt,http3,blackhole,keyupdate,ecn,amplificationlimit,handshakeloss,transferloss,handshakecorruption,transfercorruption,ipv6,v2" -c picoquic -s haproxy
+          python run.py -d -j result.json -l logs-quic-go -r haproxy=local:aws-lc -t "handshake,transfer,longrtt,chacha20,multiplexing,retry,resumption,zerortt,http3,blackhole,keyupdate,ecn,amplificationlimit,handshakeloss,transferloss,handshakecorruption,transfercorruption,ipv6,v2" -c quic-go -s haproxy
+          python run.py -d -j result.json -l logs-ngtcp2 -r haproxy=local:aws-lc -t "handshake,transfer,longrtt,chacha20,multiplexing,retry,resumption,zerortt,http3,blackhole,keyupdate,ecn,amplificationlimit,handshakeloss,transferloss,handshakecorruption,transfercorruption,ipv6,v2" -c ngtcp2 -s haproxy
 
       - name: Delete succeeded logs
         if: failure()
