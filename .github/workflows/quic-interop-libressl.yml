@@ -34,7 +34,7 @@ jobs:
       - name: Install tshark
         run: |
           sudo apt-get update
-          sudo apt-get -y install tshark
+          sudo apt-get -y install tshark docker
 
       - name: Run
         run: |
