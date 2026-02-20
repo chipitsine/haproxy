@@ -21,6 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      -
+        name: Set up Docker
+        uses: docker/setup-docker-action@v4
+
       - name: Build Docker image
         id: push
         uses: docker/build-push-action@v6
