@@ -1731,7 +1731,7 @@ add backend <name> from <defproxy> [mode <mode>] [guid <guid>] [ EXPERIMENTAL ]
   Only TCP or HTTP proxies can be created. All of the settings are inherited
   from <defproxy> default proxy instance. By default, it is mandatory to
   specify the backend mode via the argument of the same name, unless <defproxy>
-  already defines it explicitely. It is also possible to use an optional GUID
+  already defines it explicitly. It is also possible to use an optional GUID
   argument if wanted.
 
   Servers can be added via the command "add server". The backend is initialized

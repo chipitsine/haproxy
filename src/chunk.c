@@ -80,7 +80,7 @@ struct buffer *get_trash_chunk(void)
 }
 
 /* Similar to get_trash_chunk() but return a pre-allocated large chunk
- * instead. Becasuse large buffers are not enabled by default, this function may
+ * instead. Because large buffers are not enabled by default, this function may
  * return NULL.
  */
 struct buffer *get_large_trash_chunk(void)
@@ -127,7 +127,7 @@ struct buffer *get_larger_trash_chunk(struct buffer *chk)
 	if (!chk)
 		return get_trash_chunk();
 
-	/* No large buffers or current chunk is alread a large trash chunk */
+	/* No large buffers or current chunk is already a large trash chunk */
 	if (!large_trash_size || chk->size == large_trash_size)
 		return NULL;
 

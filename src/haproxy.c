@@ -2822,7 +2822,7 @@ void deinit(void)
 	 * they are respectively cleaned up in sink_deinit() and deinit_log_forward()
 	 */
 
-	/* If named defaults were preserved, ensure refcount is resetted. */
+	/* If named defaults were preserved, ensure refcount is reset. */
 	if (!(global.tune.options & GTUNE_PURGE_DEFAULTS))
 		defaults_px_unref_all();
 	/* All proxies are removed now, so every defaults should also be freed
