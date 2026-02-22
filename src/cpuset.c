@@ -27,6 +27,8 @@ int ha_cpuset_set(struct hap_cpuset *set, int cpu)
 #elif defined(CPUSET_USE_ULONG)
 	set->cpuset |= (0x1 << cpu);
 	return 0;
+#else
+	return 0;
 #endif
 }
 
@@ -41,6 +43,8 @@ int ha_cpuset_clr(struct hap_cpuset *set, int cpu)
 
 #elif defined(CPUSET_USE_ULONG)
 	set->cpuset &= ~(0x1 << cpu);
+	return 0;
+#else
 	return 0;
 #endif
 }
@@ -96,6 +100,8 @@ int ha_cpuset_count(const struct hap_cpuset *set)
 
 #elif defined(CPUSET_USE_ULONG)
 	return my_popcountl(set->cpuset);
+#else
+	return 0;
 #endif
 }
 
@@ -120,6 +126,8 @@ int ha_cpuset_ffs(const struct hap_cpuset *set)
 		return 0;
 
 	return my_ffsl(set->cpuset);
+#else
+	return 0;
 #endif
 }
 
@@ -148,6 +156,8 @@ int ha_cpuset_isequal(const struct hap_cpuset *dst, const struct hap_cpuset *src
 
 #elif defined(CPUSET_USE_ULONG)
 	return dst->cpuset == src->cpuset;
+#else
+	return 0;
 #endif
 }
 
@@ -159,6 +169,8 @@ int ha_cpuset_size()
 #elif defined(CPUSET_USE_ULONG)
 	return LONGBITS;
 
+#else
+	return 0;
 #endif
 }
 
