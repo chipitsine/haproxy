@@ -58,3 +58,4 @@ dev/udp/udp-perturb
 /tests/test_hashes
 doc/lua-api/_build
 dev/term_events/term_events
+/.github/__pycache__
