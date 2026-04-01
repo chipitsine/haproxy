@@ -390,10 +390,12 @@ static inline unsigned long ERR_peek_error_func(const char **func)
  * the old result therefore gets a use-after-free on the next call.
  *
  * Work around this by wrapping wolfSSL_X509_STORE_get0_objects() to return an
- * independent, caller-owned copy: each X509/CRL in the snapshot is protected
- * with X509_up_ref/X509_CRL_up_ref so that wolfSSL's internal cleanup cannot
- * drop the ref to zero while the copy is still live.  Callers must release the
- * returned stack with sk_X509_OBJECT_pop_free(..., X509_OBJECT_free).
+ * independent, caller-owned copy: each X509 in the snapshot is protected with
+ * X509_up_ref so that wolfSSL's internal cleanup cannot drop the ref to zero
+ * while the copy is still live.  CRL objects are included when the build
+ * provides X509_CRL_up_ref (OPENSSL_ALL or recent wolfSSL); older wolfSSL
+ * builds that lack the symbol silently omit CRL entries.  Callers must release
+ * the returned stack with sk_X509_OBJECT_pop_free(..., X509_OBJECT_free).
  */
 static inline STACK_OF(X509_OBJECT) *
 ha_wolfssl_X509_STORE_get_objects(X509_STORE *store)
@@ -438,6 +440,10 @@ ha_wolfssl_X509_STORE_get_objects(X509_STORE *store)
 			obj->data.x509 = x;
 		}
 		else if (type == X509_LU_CRL) {
+#ifdef X509_CRL_up_ref
+			/* wolfSSL_X509_CRL_up_ref requires OPENSSL_ALL and was
+			 * absent from older wolfSSL builds; skip CRL objects
+			 * when the symbol is unavailable. */
 			X509_CRL *crl = X509_OBJECT_get0_X509_CRL(src);
 			if (!crl) {
 				X509_OBJECT_free(obj);
@@ -446,6 +452,10 @@ ha_wolfssl_X509_STORE_get_objects(X509_STORE *store)
 			X509_CRL_up_ref(crl);
 			obj->type = X509_LU_CRL;
 			obj->data.crl = crl;
+#else
+			X509_OBJECT_free(obj);
+			continue;
+#endif
 		}
 		else {
 			X509_OBJECT_free(obj);
