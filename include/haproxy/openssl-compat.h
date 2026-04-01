@@ -383,6 +383,75 @@ static inline unsigned long ERR_peek_error_func(const char **func)
 #if (HA_OPENSSL_VERSION_NUMBER >= 0x40000000L) && !defined(OPENSSL_IS_AWSLC) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_OPENSSL_WOLFSSL)
 # define X509_STORE_getX_objects(x) X509_STORE_get1_objects(x)
 # define sk_X509_OBJECT_popX_free(x, y) sk_X509_OBJECT_pop_free(x,y)
+#elif defined(USE_OPENSSL_WOLFSSL)
+/* wolfSSL's X509_STORE_get0_objects() has a design issue: it decrements
+ * the reference count of X509 objects cached in store->objs on every call
+ * (via X509StoreFreeObjList). This causes use-after-free when called multiple
+ * times on the same store. We bypass it by building a fresh owned stack
+ * directly from store->certs (non-self-signed) and store->trusted
+ * (self-signed), with proper reference counting.
+ */
+static inline STACK_OF(X509_OBJECT) *
+ha_wolfssl_X509_STORE_get_objects(X509_STORE *store)
+{
+	STACK_OF(X509_OBJECT) *ret;
+	int i, n;
+
+	if (!store)
+		return NULL;
+
+	ret = wolfSSL_sk_X509_OBJECT_new();
+	if (!ret)
+		return NULL;
+
+	for (i = 0, n = sk_X509_num(store->certs); i < n; i++) {
+		X509 *x = sk_X509_value(store->certs, i);
+		X509_OBJECT *obj;
+
+		if (!x)
+			continue;
+		obj = X509_OBJECT_new();
+		if (!obj)
+			goto err;
+		X509_up_ref(x);
+		obj->type = X509_LU_X509;
+		obj->data.x509 = x;
+		if (wolfSSL_sk_X509_OBJECT_push(ret, obj) <= 0) {
+			/* X509_OBJECT_free calls X509_free(obj->data.x509),
+			 * which undoes the X509_up_ref above. */
+			X509_OBJECT_free(obj);
+			goto err;
+		}
+	}
+
+	for (i = 0, n = sk_X509_num(store->trusted); i < n; i++) {
+		X509 *x = sk_X509_value(store->trusted, i);
+		X509_OBJECT *obj;
+
+		if (!x)
+			continue;
+		obj = X509_OBJECT_new();
+		if (!obj)
+			goto err;
+		X509_up_ref(x);
+		obj->type = X509_LU_X509;
+		obj->data.x509 = x;
+		if (wolfSSL_sk_X509_OBJECT_push(ret, obj) <= 0) {
+			/* X509_OBJECT_free calls X509_free(obj->data.x509),
+			 * which undoes the X509_up_ref above. */
+			X509_OBJECT_free(obj);
+			goto err;
+		}
+	}
+
+	return ret;
+
+err:
+	sk_X509_OBJECT_pop_free(ret, X509_OBJECT_free);
+	return NULL;
+}
+# define X509_STORE_getX_objects(x) ha_wolfssl_X509_STORE_get_objects(x)
+# define sk_X509_OBJECT_popX_free(x, y) sk_X509_OBJECT_pop_free(x, y)
 #else
 # define X509_STORE_getX_objects(x) X509_STORE_get0_objects(x)
 # define sk_X509_OBJECT_popX_free(x, y) ({})
