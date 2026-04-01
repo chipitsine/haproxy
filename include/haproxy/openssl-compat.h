@@ -384,61 +384,77 @@ static inline unsigned long ERR_peek_error_func(const char **func)
 # define X509_STORE_getX_objects(x) X509_STORE_get1_objects(x)
 # define sk_X509_OBJECT_popX_free(x, y) sk_X509_OBJECT_pop_free(x,y)
 #elif defined(USE_OPENSSL_WOLFSSL)
-/* wolfSSL's X509_STORE_get0_objects() has a design issue: it decrements
- * the reference count of X509 objects cached in store->objs on every call
- * (via X509StoreFreeObjList). This causes use-after-free when called multiple
- * times on the same store. We bypass it by building a fresh owned stack
- * directly from store->certs (non-self-signed) and store->trusted
- * (self-signed), with proper reference counting.
+/* wolfSSL's X509_STORE_get0_objects() rebuilds store->objs on every call when
+ * WOLFSSL_SIGNER_DER_CERT is active (enabled by --enable-haproxy), freeing
+ * the objects from the previous call.  Any caller that holds a pointer into
+ * the old result therefore gets a use-after-free on the next call.
+ *
+ * Work around this by wrapping wolfSSL_X509_STORE_get0_objects() to return an
+ * independent, caller-owned copy: each X509/CRL in the snapshot is protected
+ * with X509_up_ref/X509_CRL_up_ref so that wolfSSL's internal cleanup cannot
+ * drop the ref to zero while the copy is still live.  Callers must release the
+ * returned stack with sk_X509_OBJECT_pop_free(..., X509_OBJECT_free).
  */
 static inline STACK_OF(X509_OBJECT) *
 ha_wolfssl_X509_STORE_get_objects(X509_STORE *store)
 {
+	STACK_OF(X509_OBJECT) *orig;
 	STACK_OF(X509_OBJECT) *ret;
 	int i, n;
 
 	if (!store)
 		return NULL;
 
+	orig = wolfSSL_X509_STORE_get0_objects(store);
+	if (!orig)
+		return NULL;
+
 	ret = wolfSSL_sk_X509_OBJECT_new();
 	if (!ret)
 		return NULL;
 
-	for (i = 0, n = sk_X509_num(store->certs); i < n; i++) {
-		X509 *x = sk_X509_value(store->certs, i);
+	n = sk_X509_OBJECT_num(orig);
+	for (i = 0; i < n; i++) {
+		X509_OBJECT *src = sk_X509_OBJECT_value(orig, i);
 		X509_OBJECT *obj;
+		int type;
 
-		if (!x)
+		if (!src)
 			continue;
+
+		type = X509_OBJECT_get_type(src);
 		obj = X509_OBJECT_new();
 		if (!obj)
 			goto err;
-		X509_up_ref(x);
-		obj->type = X509_LU_X509;
-		obj->data.x509 = x;
-		if (wolfSSL_sk_X509_OBJECT_push(ret, obj) <= 0) {
-			/* X509_OBJECT_free calls X509_free(obj->data.x509),
-			 * which undoes the X509_up_ref above. */
-			X509_OBJECT_free(obj);
-			goto err;
+
+		if (type == X509_LU_X509) {
+			X509 *x = X509_OBJECT_get0_X509(src);
+			if (!x) {
+				X509_OBJECT_free(obj);
+				continue;
+			}
+			X509_up_ref(x);
+			obj->type = X509_LU_X509;
+			obj->data.x509 = x;
 		}
-	}
-
-	for (i = 0, n = sk_X509_num(store->trusted); i < n; i++) {
-		X509 *x = sk_X509_value(store->trusted, i);
-		X509_OBJECT *obj;
-
-		if (!x)
+		else if (type == X509_LU_CRL) {
+			X509_CRL *crl = X509_OBJECT_get0_X509_CRL(src);
+			if (!crl) {
+				X509_OBJECT_free(obj);
+				continue;
+			}
+			X509_CRL_up_ref(crl);
+			obj->type = X509_LU_CRL;
+			obj->data.crl = crl;
+		}
+		else {
+			X509_OBJECT_free(obj);
 			continue;
-		obj = X509_OBJECT_new();
-		if (!obj)
-			goto err;
-		X509_up_ref(x);
-		obj->type = X509_LU_X509;
-		obj->data.x509 = x;
+		}
+
 		if (wolfSSL_sk_X509_OBJECT_push(ret, obj) <= 0) {
-			/* X509_OBJECT_free calls X509_free(obj->data.x509),
-			 * which undoes the X509_up_ref above. */
+			/* X509_OBJECT_free calls X509_free or X509_CRL_free,
+			 * which undoes the up_ref above. */
 			X509_OBJECT_free(obj);
 			goto err;
 		}
