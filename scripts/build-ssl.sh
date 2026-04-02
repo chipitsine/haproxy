@@ -256,7 +256,7 @@ build_wolfssl () {
 
            cd "${BUILDSSL_TMPDIR}/wolfssl-${WOLFSSL_VERSION}/"
             autoreconf -i
-           CFLAGS="-fsanitize=address -g" ./configure --enable-haproxy --enable-quic --prefix="${BUILDSSL_DESTDIR}" ${WOLFSSL_DEBUG}
+           CFLAGS="-fsanitize=address -g" ./configure --enable-haproxy --enable-quic --prefix="${BUILDSSL_DESTDIR}" 
            make -j$(nproc)
            make install
         )
