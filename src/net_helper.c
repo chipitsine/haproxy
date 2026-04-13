@@ -110,7 +110,7 @@ static int sample_conv_eth_vlan(const struct arg *arg_p, struct sample *smp, voi
 			smp->flags &= ~SMP_F_CONST;
 			return !!vlan;
 		}
-		if (idx + 4 < smp->data.u.str.data)
+		if (smp->data.u.str.data < idx + 4)
 			break;
 
 		vlan = read_n16(smp->data.u.str.area + idx + 2) & 0xfff;
@@ -435,7 +435,7 @@ static int tcp_fullhdr_length(const struct sample *smp)
 }
 
 /* returns the offset in the input TCP header where option kind <opt> is first
- * seen, otherwise 0 if not found. NOP and END cannot be searched.
+ * seen, otherwise 0 if not found. END (kind 0) cannot be searched.
  */
 static size_t tcp_fullhdr_find_opt(const struct sample *smp, uint8_t opt)
 {
@@ -823,7 +823,7 @@ static int sample_conv_ip_fp(const struct arg *arg_p, struct sample *smp, void *
 		trash->data += iplen;
 	}
 
-	/* option kinds if any are stored starting at offset 7 */
+	/* option kinds if any are stored starting at offset 8 */
 	smp->data.u.str = *trash;
 	smp->flags &= ~SMP_F_CONST;
 	return 1;
