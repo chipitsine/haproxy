@@ -816,7 +816,7 @@ static inline void qc_try_store_new_token(struct server *s,
 	stok = &s->per_thr[tid].quic_retry_token;
 	stok_ptr = istptr(*stok);
 	if (len > istlen(*stok)) {
-		stok_ptr = realloc(stok_ptr, len);
+		stok_ptr = my_realloc2(stok_ptr, len);
 		if (stok_ptr)
 			s->per_thr[tid].quic_retry_token.ptr = stok_ptr;
 		else {
