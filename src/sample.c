@@ -5062,7 +5062,7 @@ smp_fetch_pid(const struct arg *args, struct sample *smp, const char *kw, void *
 }
 
 
-/* returns the number of the current process (between 1 and nbproc */
+/* returns the number of the current process (between 1 and nbproc) */
 static int
 smp_fetch_proc(const struct arg *args, struct sample *smp, const char *kw, void *private)
 {
@@ -5071,12 +5071,58 @@ smp_fetch_proc(const struct arg *args, struct sample *smp, const char *kw, void 
 	return 1;
 }
 
-/* returns the number of the current thread (between 1 and nbthread */
+/* returns the number of the current thread (between 0 and nbthread-1) */
 static int
 smp_fetch_thread(const struct arg *args, struct sample *smp, const char *kw, void *private)
 {
 	smp->data.type = SMP_T_SINT;
 	smp->data.u.sint = tid;
+	return 1;
+}
+
+/* returns the number of the current thread group (between 0 and nbtgroups-1) */
+static int
+smp_fetch_tgroup(const struct arg *args, struct sample *smp, const char *kw, void *private)
+{
+	smp->data.type = SMP_T_SINT;
+	smp->data.u.sint = tgid - 1; // tgid starts at 1
+	return 1;
+}
+
+/* returns the last known CPU usage of the current thread */
+static int
+smp_fetch_cpu_usage_thr(const struct arg *args, struct sample *smp, const char *kw, void *private)
+{
+	smp->data.type = SMP_T_SINT;
+	smp->data.u.sint = 100 - th_ctx->idle_pct;
+	return 1;
+}
+
+/* returns the last known CPU usage of the current thread group */
+static int
+smp_fetch_cpu_usage_grp(const struct arg *args, struct sample *smp, const char *kw, void *private)
+{
+	uint thr, tot = 0;
+
+	for (thr = 0; thr < ha_tgroup_info[tgid - 1].count; thr++)
+		tot += 100 - ha_thread_ctx[ha_tgroup_info[tgid - 1].base + thr].idle_pct;
+
+	smp->data.type = SMP_T_SINT;
+	smp->data.u.sint = (tot + thr / 2) / thr;
+	return 1;
+}
+
+/* returns the last known CPU usage of the whole process */
+static int
+smp_fetch_cpu_usage_proc(const struct arg *args, struct sample *smp, const char *kw, void *private)
+{
+	int thr, tot = 0;
+
+	for (thr = 0; thr < global.nbthread; thr++)
+		tot += 100 - ha_thread_ctx[thr].idle_pct;
+
+	smp->data.type = SMP_T_SINT;
+	smp->data.u.sint = (tot + thr / 2) / thr;
 	return 1;
 }
 
@@ -5659,6 +5705,7 @@ static struct sample_fetch_kw_list smp_kws = {ILH, {
 	{ "proc",         smp_fetch_proc,  0,            NULL, SMP_T_SINT, SMP_USE_CONST },
 	{ "quic_enabled", smp_fetch_quic_enabled, 0,     NULL, SMP_T_BOOL, SMP_USE_CONST },
 	{ "thread",       smp_fetch_thread,  0,          NULL, SMP_T_SINT, SMP_USE_CONST },
+	{ "tgroup",       smp_fetch_tgroup,  0,          NULL, SMP_T_SINT, SMP_USE_CONST },
 	{ "rand",         smp_fetch_rand,  ARG1(0,SINT), NULL, SMP_T_SINT, SMP_USE_CONST },
 	{ "stopping",     smp_fetch_stopping, 0,         NULL, SMP_T_BOOL, SMP_USE_INTRN },
 	{ "uptime",       smp_fetch_uptime,   0,         NULL, SMP_T_SINT, SMP_USE_CONST },
@@ -5667,6 +5714,9 @@ static struct sample_fetch_kw_list smp_kws = {ILH, {
 	{ "cpu_calls",    smp_fetch_cpu_calls,  0,       NULL, SMP_T_SINT, SMP_USE_INTRN },
 	{ "cpu_ns_avg",   smp_fetch_cpu_ns_avg, 0,       NULL, SMP_T_SINT, SMP_USE_INTRN },
 	{ "cpu_ns_tot",   smp_fetch_cpu_ns_tot, 0,       NULL, SMP_T_SINT, SMP_USE_INTRN },
+	{ "cpu_usage_grp", smp_fetch_cpu_usage_grp,  0,  NULL, SMP_T_SINT, SMP_USE_INTRN },
+	{ "cpu_usage_proc",smp_fetch_cpu_usage_proc, 0,  NULL, SMP_T_SINT, SMP_USE_INTRN },
+	{ "cpu_usage_thr", smp_fetch_cpu_usage_thr,  0,  NULL, SMP_T_SINT, SMP_USE_INTRN },
 	{ "lat_ns_avg",   smp_fetch_lat_ns_avg, 0,       NULL, SMP_T_SINT, SMP_USE_INTRN },
 	{ "lat_ns_tot",   smp_fetch_lat_ns_tot, 0,       NULL, SMP_T_SINT, SMP_USE_INTRN },
 

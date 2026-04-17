@@ -44,6 +44,10 @@ DECLARE_STATIC_TYPED_POOL(pool_head_qc_stream_rxbuf, "qc_stream_rxbuf", struct q
 static void qmux_ctrl_send(struct qc_stream_desc *, uint64_t data, uint64_t offset);
 static void qmux_ctrl_room(struct qc_stream_desc *, uint64_t room);
 
+static void qcc_release(struct qcc *qcc);
+static int qcc_app_init(struct qcc *qcc);
+static void qcc_app_shutdown(struct qcc *qcc);
+
 /* Returns true if pacing should be used for <conn> connection. */
 static int qcc_is_pacing_active(const struct connection *conn)
 {
@@ -284,9 +288,13 @@ static inline int qcc_is_dead(const struct qcc *qcc)
 	 * - remote error detected at transport level
 	 * - error detected locally
 	 * - MUX timeout expired
+	 * - app layer shut and all transfers done (FE side only - used for stream.max-total)
+	 * - new stream initiating definitely blocked (BE side only - used for H3 GOAWAY reception)
 	 */
 	if (qcc->flags & (QC_CF_ERR_CONN|QC_CF_ERRL_DONE) ||
-	    !qcc->task) {
+	    !qcc->task ||
+	    (!conn_is_back(qcc->conn) && !qcc->nb_hreq && qcc->app_st == QCC_APP_ST_SHUT) ||
+	    (conn_is_back(qcc->conn) && !qcc->nb_hreq && (qcc->flags & QC_CF_CONN_SHUT))) {
 		return 1;
 	}
 
@@ -823,6 +831,18 @@ int qcc_fctl_avail_streams(const struct qcc *qcc, int bidi)
 	}
 }
 
+/* Retrieves the maximum number of bidirectional remote streams that the peer
+ * will be allowed to use during <conn> connection lifetime. This is guaranteed
+ * to be a positive integer.
+ */
+static uint64_t qcc_max_strm_bidi_remote(const struct connection *conn)
+{
+	/* On FE side, streams may be limited by stream.max-total configuration. */
+	if (!conn_is_back(conn) && quic_tune.fe.stream_max_total)
+		return quic_tune.fe.stream_max_total;
+	return (uint64_t)1 << 60;
+}
+
 /* Open a locally initiated stream for the connection <qcc>. Set <bidi> for a
  * bidirectional stream, else an unidirectional stream is opened. The next
  * available ID on the connection will be used according to the stream type.
@@ -952,16 +972,17 @@ void qcs_send_metadata(struct qcs *qcs)
 	qcs->flags |= QC_SF_TXBUB_OOB;
 }
 
-/* Instantiate a streamdesc instance for <qcs> stream. This is necessary to
- * transfer data after a new request reception. <buf> can be used to forward
+/* Instantiate a stream and its associated stconn and sedesc. This is necessary
+ * to transfer data after a new request reception. <buf> can be used to forward
  * the first received request data. <fin> must be set if the whole request is
  * already received.
  *
- * Note that if <qcs> is already fully closed, no streamdesc is instantiated.
- * This is useful if a RESET_STREAM was already emitted in response to a
- * STOP_SENDING.
+ * This function is only used on frontend side.
  *
- * Returns 0 on success else a negative error code. If stream is already fully
+ * Note that if <qcs> is already fully closed, nothing is instantiated. This is
+ * useful if a RESET_STREAM was already emitted in response to a STOP_SENDING.
+ *
+ * Returns 0 on success else a negative error code. If <qcs> is already fully
  * closed and nothing is performed, it is considered as a success case.
  */
 int qcs_attach_sc(struct qcs *qcs, struct buffer *buf, char fin)
@@ -1039,6 +1060,12 @@ int qcs_attach_sc(struct qcs *qcs, struct buffer *buf, char fin)
 	if (unlikely(qcs_is_close_local(qcs) || (qcs->flags & QC_SF_TO_RESET))) {
 		TRACE_STATE("report early error", QMUX_EV_STRM_RECV, qcc->conn, qcs);
 		se_fl_set_error(qcs->sd);
+	}
+
+	/* Graceful shutdown is initiated as soon as max stream is reached. */
+	if (qcs->id == (qcc_max_strm_bidi_remote(qcc->conn) - 1) * 4) {
+		TRACE_STATE("initiate shutdown as max remote bidi stream reached", QMUX_EV_STRM_RECV, qcc->conn, qcs);
+		qcc_app_shutdown(qcc);
 	}
 
  out:
@@ -2009,6 +2036,13 @@ int qcc_recv(struct qcc *qcc, uint64_t id, uint64_t len, uint64_t offset,
 		BUG_ON_HOT(fin_standalone); /* On fin_standalone <ret> should be NULL, which ensures no infinite loop. */
 	}
 
+	/* Ensure that an idle backend conn is freed if it cannot open new stream. */
+	if (conn_is_back(qcc->conn) && qcc_is_dead(qcc)) {
+		TRACE_STATE("releasing dead connection after STREAM decoding", QMUX_EV_QCC_RECV, qcc->conn);
+		qcc_release(qcc);
+		return 0;
+	}
+
  out:
 	TRACE_LEAVE(QMUX_EV_QCC_RECV, qcc->conn);
 	return 0;
@@ -2357,8 +2391,6 @@ int qcc_recv_stop_sending(struct qcc *qcc, uint64_t id, uint64_t err)
 	return 1;
 }
 
-#define QUIC_MAX_STREAMS_MAX_ID (1ULL<<60)
-
 /* Signal the closing of remote stream with id <id>. Flow-control for new
  * streams may be allocated for the peer if needed.
  */
@@ -2369,18 +2401,10 @@ static int qcc_release_remote_stream(struct qcc *qcc, uint64_t id)
 	TRACE_ENTER(QMUX_EV_QCS_END, qcc->conn);
 
 	if (quic_stream_is_bidi(id)) {
-		/* RFC 9000 4.6. Controlling Concurrency
-		 *
-		 * If a max_streams transport parameter or a MAX_STREAMS frame is
-		 * received with a value greater than 260, this would allow a maximum
-		 * stream ID that cannot be expressed as a variable-length integer; see
-		 * Section 16. If either is received, the connection MUST be closed
-		 * immediately with a connection error of type TRANSPORT_PARAMETER_ERROR
-		 * if the offending value was received in a transport parameter or of
-		 * type FRAME_ENCODING_ERROR if it was received in a frame; see Section
-		 * 10.2.
-		 */
-		if (qcc->lfctl.ms_bidi == QUIC_MAX_STREAMS_MAX_ID) {
+		const uint64_t max = qcc_max_strm_bidi_remote(qcc->conn);
+		/* The peer must not have been authorized to open a stream outside of this range. */
+		BUG_ON(qcc->lfctl.ms_bidi > max);
+		if (qcc->lfctl.ms_bidi == max) {
 			TRACE_DATA("maximum streams value reached", QMUX_EV_QCC_SEND, qcc->conn);
 			goto out;
 		}
@@ -2390,7 +2414,7 @@ static int qcc_release_remote_stream(struct qcc *qcc, uint64_t id)
 		 * the initial window or reaching the stream ID limit.
 		 */
 		if (qcc->lfctl.cl_bidi_r > qcc->lfctl.ms_bidi_init / 2 ||
-		    qcc->lfctl.cl_bidi_r + qcc->lfctl.ms_bidi == QUIC_MAX_STREAMS_MAX_ID) {
+		    qcc->lfctl.cl_bidi_r + qcc->lfctl.ms_bidi == max) {
 			TRACE_DATA("increase max stream limit with MAX_STREAMS_BIDI", QMUX_EV_QCC_SEND, qcc->conn);
 			frm = qc_frm_alloc(QUIC_FT_MAX_STREAMS_BIDI);
 			if (!frm) {
@@ -2958,42 +2982,6 @@ static void qcc_wakeup_pacing(struct qcc *qcc)
 	++qcc->tx.paced_sent_ctr;
 }
 
-/* Conduct I/O operations to finalize <qcc> app layer initialization. Note that
- * <qcc> app state may remain NULL even on success, if only a transient
- * blocking was encountered. Finalize operation can be retry later.
- *
- * Returns 0 on success else non-zero.
- */
-static int qcc_app_init(struct qcc *qcc)
-{
-	int ret;
-
-	TRACE_ENTER(QMUX_EV_QCC_SEND, qcc->conn);
-
-	if (qcc->app_ops->finalize) {
-		ret = qcc->app_ops->finalize(qcc->ctx);
-		if (ret < 0) {
-			TRACE_ERROR("app ops finalize error", QMUX_EV_QCC_NEW, qcc->conn);
-			goto err;
-		}
-
-		if (ret) {
-			TRACE_STATE("cannot finalize app ops yet", QMUX_EV_QCC_NEW, qcc->conn);
-			goto again;
-		}
-	}
-
-	qcc->app_st = QCC_APP_ST_INIT;
-
- again:
-	TRACE_LEAVE(QMUX_EV_QCC_SEND, qcc->conn);
-	return 0;
-
- err:
-	TRACE_DEVEL("leaving on error", QMUX_EV_QCC_SEND, qcc->conn);
-	return 1;
-}
-
 /* Proceed to sending. Loop through all available streams for the <qcc>
  * instance and try to send as much as possible.
  *
@@ -3234,18 +3222,25 @@ static int qmux_avail_streams(struct connection *conn)
 {
 	struct server *srv = __objt_server(conn->target);
 	struct qcc *qcc = conn->ctx;
-	int max_fctl, max_reuse = 0;
+	int ret, max_reuse = 0;
 
-	max_fctl = qcc_fctl_avail_streams(qcc, 1);
+	/* Shutdown initiated by the peer - in HTTP/3 this corresponds to a GOAWAY frame received. */
+	if (qcc->flags & QC_CF_CONN_SHUT)
+		return 0;
+
+	ret = qcc_fctl_avail_streams(qcc, 1);
 
 	if (srv->max_reuse >= 0) {
 		max_reuse = qcc->tot_sc <= srv->max_reuse ?
 		  srv->max_reuse - qcc->tot_sc + 1: 0;
-		return MIN(max_fctl, max_reuse);
+		ret = MIN(ret, max_reuse);
 	}
-	else {
-		return max_fctl;
-	}
+
+	/* Ensure we do not exceed the maximum usable stream ID. */
+	if (unlikely(ret > QCS_ID_MAX_STRM_CL_BIDI - qcc->next_bidi_l))
+		ret = QCS_ID_MAX_STRM_CL_BIDI - qcc->next_bidi_l;
+
+	return ret;
 }
 
 /* Returns the number of streams currently attached into <conn> connection.
@@ -3273,52 +3268,6 @@ static void qcc_purge_streams(struct qcc *qcc)
 	}
 
 	TRACE_LEAVE(QMUX_EV_QCC_WAKE, qcc->conn);
-}
-
-/* Execute application layer shutdown. If this operation is not defined, a
- * CONNECTION_CLOSE will be prepared as a fallback. This function is protected
- * against multiple invocation thanks to <qcc> application state context.
- */
-static void qcc_shutdown(struct qcc *qcc)
-{
-	TRACE_ENTER(QMUX_EV_QCC_END, qcc->conn);
-
-	if (qcc->flags & (QC_CF_ERR_CONN|QC_CF_ERRL)) {
-		TRACE_DATA("connection on error", QMUX_EV_QCC_END, qcc->conn);
-		goto out;
-	}
-
-	if (qcc->app_st >= QCC_APP_ST_SHUT)
-		goto out;
-
-	TRACE_STATE("perform graceful shutdown", QMUX_EV_QCC_END, qcc->conn);
-	if (qcc->app_ops && qcc->app_ops->shutdown) {
-		qcc->app_ops->shutdown(qcc->ctx);
-		qcc_io_send(qcc);
-	}
-	else {
-		qcc->err = quic_err_transport(QC_ERR_NO_ERROR);
-	}
-
-	if (conn_is_quic(qcc->conn)) {
-		/* Register "no error" code at transport layer. Do not use
-		 * quic_set_connection_close() as retransmission may be performed to
-		 * finalized transfers. Do not overwrite quic-conn existing code if
-		 * already set.
-		 *
-		 * TODO implement a wrapper function for this in quic-conn module
-		 */
-		if (!(qcc->conn->handle.qc->flags & QUIC_FL_CONN_IMMEDIATE_CLOSE))
-			qcc->conn->handle.qc->err = qcc->err;
-	}
-
-	/* A connection is not reusable if app layer is closed. */
-	if (qcc->flags & QC_CF_IS_BACK)
-		conn_delete_from_tree(qcc->conn, tid);
-
- out:
-	qcc->app_st = QCC_APP_ST_SHUT;
-	TRACE_LEAVE(QMUX_EV_QCC_END, qcc->conn);
 }
 
 /* Loop through all qcs from <qcc> and wake their associated data layer if
@@ -3394,7 +3343,7 @@ static int qcc_io_process(struct qcc *qcc)
 		}
 
 		if (close)
-			qcc_shutdown(qcc);
+			qcc_app_shutdown(qcc);
 	}
 
 	/* Report error if set on stream endpoint layer. */
@@ -3406,6 +3355,93 @@ static int qcc_io_process(struct qcc *qcc)
 		return 1;
 
 	return 0;
+}
+
+/* Conduct I/O operations to finalize <qcc> app layer initialization. Note that
+ * <qcc> app state may remain NULL even on success, if only a transient
+ * blocking was encountered. Finalize operation can be retry later.
+ *
+ * Returns 0 on success else non-zero.
+ */
+static int qcc_app_init(struct qcc *qcc)
+{
+	int ret;
+
+	TRACE_ENTER(QMUX_EV_QCC_SEND, qcc->conn);
+
+	if (qcc->app_ops->finalize) {
+		ret = qcc->app_ops->finalize(qcc->ctx);
+		if (ret < 0) {
+			TRACE_ERROR("app ops finalize error", QMUX_EV_QCC_NEW, qcc->conn);
+			goto err;
+		}
+
+		if (ret) {
+			TRACE_STATE("cannot finalize app ops yet", QMUX_EV_QCC_NEW, qcc->conn);
+			goto again;
+		}
+	}
+
+	qcc->app_st = QCC_APP_ST_INIT;
+
+ again:
+	TRACE_LEAVE(QMUX_EV_QCC_SEND, qcc->conn);
+	return 0;
+
+ err:
+	TRACE_DEVEL("leaving on error", QMUX_EV_QCC_SEND, qcc->conn);
+	return 1;
+}
+
+/* Execute application layer shutdown. If this operation is not defined, a
+ * CONNECTION_CLOSE will be prepared as a fallback. This function is protected
+ * against multiple invocation thanks to <qcc> application state context.
+ */
+static void qcc_app_shutdown(struct qcc *qcc)
+{
+	TRACE_ENTER(QMUX_EV_QCC_END, qcc->conn);
+
+	if (qcc->flags & (QC_CF_ERR_CONN|QC_CF_ERRL)) {
+		TRACE_DATA("connection on error", QMUX_EV_QCC_END, qcc->conn);
+		goto out;
+	}
+
+	if (qcc->app_st >= QCC_APP_ST_SHUT)
+		goto out;
+
+	if (qcc->app_st < QCC_APP_ST_INIT) {
+		if (qcc_app_init(qcc))
+			goto out;
+	}
+
+	TRACE_STATE("perform graceful shutdown", QMUX_EV_QCC_END, qcc->conn);
+	if (qcc->app_ops && qcc->app_ops->shutdown) {
+		qcc->app_ops->shutdown(qcc->ctx);
+		qcc_io_send(qcc);
+	}
+	else {
+		qcc->err = quic_err_transport(QC_ERR_NO_ERROR);
+	}
+
+	if (conn_is_quic(qcc->conn)) {
+		/* Register "no error" code at transport layer. Do not use
+		 * quic_set_connection_close() as retransmission may be performed to
+		 * finalized transfers. Do not overwrite quic-conn existing code if
+		 * already set.
+		 *
+		 * TODO implement a wrapper function for this in quic-conn module
+		 */
+		if (!(qcc->conn->handle.qc->flags & QUIC_FL_CONN_IMMEDIATE_CLOSE))
+			qcc->conn->handle.qc->err = qcc->err;
+	}
+
+	/* A connection is not reusable if app layer is closed. */
+	if (qcc->flags & QC_CF_IS_BACK)
+		conn_delete_from_tree(qcc->conn, tid);
+
+ out:
+	qcc->app_st = QCC_APP_ST_SHUT;
+	TRACE_LEAVE(QMUX_EV_QCC_END, qcc->conn);
 }
 
 /* Free all resources allocated for <qcc> connection. */
@@ -3584,7 +3620,7 @@ struct task *qcc_io_cb(struct task *t, void *ctx, unsigned int state)
 	return t;
 
  release:
-	qcc_shutdown(qcc);
+	qcc_app_shutdown(qcc);
 	qcc_release(qcc);
 
 	TRACE_LEAVE(QMUX_EV_QCC_WAKE);
@@ -3674,7 +3710,7 @@ static struct task *qcc_timeout_task(struct task *t, void *ctx, unsigned int sta
 	 */
 	if (qcc_is_dead(qcc)) {
 		TRACE_STATE("releasing dead connection", QMUX_EV_QCC_WAKE, qcc->conn);
-		qcc_shutdown(qcc);
+		qcc_app_shutdown(qcc);
 		qcc_release(qcc);
 	}
 
@@ -4141,7 +4177,7 @@ static void qmux_strm_detach(struct sedesc *sd)
 	return;
 
  release:
-	qcc_shutdown(qcc);
+	qcc_app_shutdown(qcc);
 	qcc_release(qcc);
 	TRACE_LEAVE(QMUX_EV_STRM_END);
 	return;
@@ -4485,7 +4521,7 @@ static int qmux_wake(struct connection *conn)
 	return 0;
 
  release:
-	qcc_shutdown(qcc);
+	qcc_app_shutdown(qcc);
 	qcc_release(qcc);
 	TRACE_LEAVE(QMUX_EV_QCC_WAKE);
 	return 1;

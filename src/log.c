@@ -334,7 +334,8 @@ char default_tcp_log_format[] = "%ci:%cp [%t] %ft %b/%s %Tw/%Tc/%Tt %B %ts %ac/%
 char clf_tcp_log_format[] = "%{+Q}o %{-Q}ci - - [%T] \"TCP \" 000 %B \"\" \"\" %cp %ms %ft %b %s %Th %Tw %Tc %Tt %U %ts-- %ac %fc %bc %sc %rc %sq %bq \"\" \"\" ";
 char *log_format = NULL;
 
-char keylog_format_bc[] = "CLIENT_EARLY_TRAFFIC_SECRET %[ssl_bc_client_random,hex] %[ssl_bc_client_early_traffic_secret]\n"
+char keylog_format_bc[] = "CLIENT_RANDOM %[ssl_bc_client_random,hex]  %[ssl_bc_session_key,hex]\n"
+                          "CLIENT_EARLY_TRAFFIC_SECRET %[ssl_bc_client_random,hex] %[ssl_bc_client_early_traffic_secret]\n"
                           "CLIENT_HANDSHAKE_TRAFFIC_SECRET %[ssl_bc_client_random,hex] %[ssl_bc_client_handshake_traffic_secret]\n"
                           "SERVER_HANDSHAKE_TRAFFIC_SECRET %[ssl_bc_client_random,hex] %[ssl_bc_server_handshake_traffic_secret]\n"
                           "CLIENT_TRAFFIC_SECRET_0 %[ssl_bc_client_random,hex] %[ssl_bc_client_traffic_secret_0]\n"
@@ -342,7 +343,8 @@ char keylog_format_bc[] = "CLIENT_EARLY_TRAFFIC_SECRET %[ssl_bc_client_random,he
                           "EXPORTER_SECRET %[ssl_bc_client_random,hex] %[ssl_bc_exporter_secret]\n"
                           "EARLY_EXPORTER_SECRET %[ssl_bc_client_random,hex] %[ssl_bc_early_exporter_secret]";
 
-char keylog_format_fc[] = "CLIENT_EARLY_TRAFFIC_SECRET %[ssl_fc_client_random,hex] %[ssl_fc_client_early_traffic_secret]\n"
+char keylog_format_fc[] = "CLIENT_RANDOM %[ssl_fc_client_random,hex] %[ssl_fc_session_key,hex]\n"
+                          "CLIENT_EARLY_TRAFFIC_SECRET %[ssl_fc_client_random,hex] %[ssl_fc_client_early_traffic_secret]\n"
                           "CLIENT_HANDSHAKE_TRAFFIC_SECRET %[ssl_fc_client_random,hex] %[ssl_fc_client_handshake_traffic_secret]\n"
                           "SERVER_HANDSHAKE_TRAFFIC_SECRET %[ssl_fc_client_random,hex] %[ssl_fc_server_handshake_traffic_secret]\n"
                           "CLIENT_TRAFFIC_SECRET_0 %[ssl_fc_client_random,hex] %[ssl_fc_client_traffic_secret_0]\n"
@@ -3879,6 +3881,30 @@ int lf_expr_dup(const struct lf_expr *orig, struct lf_expr *dest)
 	return 0;
 }
 
+/* Generates a unique ID based on the given <format> and stores it
+ * in <dst>. <dst> must be IST_NULL when this function is called.
+ *
+ * If this function fails to allocate memory IST_NULL is stored.
+ */
+void generate_unique_id(struct ist *dst, struct session *sess, struct stream *strm, struct lf_expr *format)
+{
+	char *unique_id;
+
+	BUG_ON(isttest(*dst));
+
+	unique_id = pool_alloc(pool_head_uniqueid);
+	if (unique_id == NULL) {
+		*dst = IST_NULL;
+		return;
+	}
+
+	/* Initialize <dst> to an empty string to prevent infinite
+	 * recursion when the <format> references %[unique-id] or %ID.
+	 */
+	*dst = ist2(unique_id, 0);
+	dst->len = sess_build_logline(sess, strm, unique_id, UNIQUEID_LEN, format);
+}
+
 /* Builds a log line in <dst> based on <lf_expr>, and stops before reaching
  * <maxsize> characters. Returns the size of the output string in characters,
  * not counting the trailing zero which is always added if the resulting size
@@ -3886,7 +3912,7 @@ int lf_expr_dup(const struct lf_expr *orig, struct lf_expr *dest)
  * stream is NULL, default values will be assumed for the stream part.
  */
 size_t sess_build_logline_orig(struct session *sess, struct stream *s,
-                            char *dst, size_t maxsize, struct lf_expr *lf_expr,
+                            char *dst, size_t maxsize, const struct lf_expr *lf_expr,
                             struct log_orig log_orig)
 {
 	struct lf_buildctx _ctx = {};
@@ -3896,7 +3922,7 @@ size_t sess_build_logline_orig(struct session *sess, struct stream *s,
 	struct http_txn *txn;
 	const struct strm_logs *logs;
 	struct connection *fe_conn, *be_conn;
-	struct list *list_format = &lf_expr->nodes.list;
+	const struct list *list_format = &lf_expr->nodes.list;
 	unsigned int s_flags;
 	unsigned int uniq_id;
 	struct buffer chunk;
@@ -5147,20 +5173,18 @@ size_t sess_build_logline_orig(struct session *sess, struct stream *s,
 				break;
 
 			case LOG_FMT_UNIQUEID: // %ID
-				ret = NULL;
-				if (s) {
-					/* if unique-id was not generated */
-					if (!isttest(s->unique_id) && !lf_expr_isempty(&sess->fe->format_unique_id)) {
-						stream_generate_unique_id(s, &sess->fe->format_unique_id);
-					}
-					ret = lf_text_len(tmplog, s->unique_id.ptr, s->unique_id.len, maxsize - (tmplog - dst), ctx);
-				}
-				else
-					ret = lf_text_len(tmplog, NULL, 0, maxsize - (tmplog - dst), ctx);
+			{
+				struct ist unique_id = IST_NULL;
+
+				if (s && !lf_expr_isempty(&sess->fe->format_unique_id))
+					unique_id = stream_generate_unique_id(s, &sess->fe->format_unique_id);
+
+				ret = lf_text_len(tmplog, istptr(unique_id), istlen(unique_id), maxsize - (tmplog - dst), ctx);
 				if (ret == NULL)
 					goto out;
 				tmplog = ret;
 				break;
+			}
 
 			case LOG_FMT_ORIGIN: // %OG
 				ret = lf_text(tmplog, log_orig_to_str(log_orig.id),

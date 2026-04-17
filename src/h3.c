@@ -123,6 +123,7 @@ INITCALL1(STG_REGISTER, trace_register_source, TRACE_SOURCE);
 #define H3_CF_UNI_QPACK_DEC_SET 0x00000008  /* Remote QPACK decoder stream opened */
 #define H3_CF_UNI_QPACK_ENC_SET 0x00000010  /* Remote QPACK encoder stream opened */
 #define H3_CF_GOAWAY_SENT       0x00000020  /* GOAWAY sent on local control stream */
+#define H3_CF_GOAWAY_RECV       0x00000040  /* GOAWAY received from the peer */
 
 /* Default settings */
 static uint64_t h3_settings_qpack_max_table_capacity = 0;
@@ -140,7 +141,8 @@ struct h3c {
 	uint64_t qpack_blocked_streams;
 	uint64_t max_field_section_size;
 
-	uint64_t id_goaway; /* stream ID used for a GOAWAY frame */
+	uint64_t id_shut_l; /* GOAWAY ID locally emitted */
+	uint64_t id_shut_r; /* GOAWAY ID emitted by the peer */
 
 	struct buffer_wait buf_wait; /* wait list for buffer allocations */
 	/* Stats counters */
@@ -1063,19 +1065,6 @@ static ssize_t h3_req_headers_to_htx(struct qcs *qcs, const struct buffer *buf,
 		goto out;
 	}
 
-	/* RFC 9114 5.2. Connection Shutdown
-	 *
-	 * The GOAWAY frame contains an identifier that
-	 * indicates to the receiver the range of requests or pushes that were
-	 * or might be processed in this connection.  The server sends a client-
-	 * initiated bidirectional stream ID; the client sends a push ID.
-	 * Requests or pushes with the indicated identifier or greater are
-	 * rejected (Section 4.1.1) by the sender of the GOAWAY.  This
-	 * identifier MAY be zero if no requests or pushes were processed.
-	 */
-	if (qcs->id >= h3c->id_goaway)
-		h3c->id_goaway = qcs->id + 4;
-
  out:
 	/* HTX may be non NULL if error before previous htx_to_buf(). */
 	if (htx)
@@ -1694,6 +1683,43 @@ static ssize_t h3_parse_settings_frm(struct h3c *h3c, const struct buffer *buf,
 	return ret;
 }
 
+static ssize_t h3_parse_goaway_frm(struct h3c *h3c, const struct buffer *buf,
+                                   size_t len)
+{
+	struct buffer b;
+	uint64_t id;
+	size_t ret = 0;
+
+	TRACE_ENTER(H3_EV_RX_FRAME, h3c->qcc->conn);
+
+	b = b_make(b_orig(buf), b_size(buf), b_head_ofs(buf), len);
+	if (!b_quic_dec_int(&id, &b, &ret)) {
+		h3c->err = H3_ERR_FRAME_ERROR;
+		qcc_report_glitch(h3c->qcc, 1);
+		return -1;
+	}
+
+	if ((h3c->flags & H3_CF_GOAWAY_RECV) && id > h3c->id_shut_r) {
+		h3c->err = H3_ERR_ID_ERROR;
+		qcc_report_glitch(h3c->qcc, 1);
+		return -1;
+	}
+
+	h3c->flags |= H3_CF_GOAWAY_RECV;
+	h3c->id_shut_r = id;
+
+	/* RFC 9114 5.2. Connection Shutdown
+	 *
+	 * Endpoints MUST NOT initiate new requests or promise new pushes on the
+	 * connection after receipt of a GOAWAY frame from the peer. Clients MAY
+	 * establish a new connection to send additional requests.
+	 */
+	h3c->qcc->flags |= QC_CF_CONN_SHUT;
+
+	TRACE_LEAVE(H3_EV_RX_FRAME, h3c->qcc->conn);
+	return ret;
+}
+
 /* Transcode HTTP/3 payload received in buffer <b> to HTX data for stream
  * <qcs>. If <fin> is set, it indicates that no more data will arrive after.
  *
@@ -1896,10 +1922,17 @@ static ssize_t h3_rcv_buf(struct qcs *qcs, struct buffer *b, int fin)
 				h3s->st_req = H3S_ST_REQ_TRAILERS;
 			}
 			break;
+		case H3_FT_GOAWAY:
+			ret = h3_parse_goaway_frm(qcs->qcc->ctx, b, flen);
+			if (ret < 0) {
+				TRACE_ERROR("error on SETTINGS parsing", H3_EV_RX_FRAME, qcs->qcc->conn, qcs);
+				qcc_set_error(qcs->qcc, h3c->err, 1);
+				goto err;
+			}
+			break;
 		case H3_FT_CANCEL_PUSH:
 		case H3_FT_PUSH_PROMISE:
 		case H3_FT_MAX_PUSH_ID:
-		case H3_FT_GOAWAY:
 			/* Not supported */
 			ret = flen;
 			break;
@@ -3098,7 +3131,7 @@ static int h3_attach(struct qcs *qcs, void *conn_ctx)
 	 * The endpoint SHOULD continue to do so as more requests or
 	 * pushes arrive.
 	 */
-	if (h3c->flags & H3_CF_GOAWAY_SENT && qcs->id >= h3c->id_goaway &&
+	if (h3c->flags & H3_CF_GOAWAY_SENT && qcs->id >= h3c->id_shut_l &&
 	    quic_stream_is_bidi(qcs->id)) {
 		/* Local stack should not attached stream on a closed connection. */
 		BUG_ON(quic_stream_is_local(qcs->qcc, qcs->id));
@@ -3140,10 +3173,21 @@ static int h3_send_goaway(struct h3c *h3c)
 	struct qcs *qcs = h3c->ctrl_strm;
 	struct buffer pos, *res;
 	unsigned char data[3 * QUIC_VARINT_MAX_SIZE];
-	size_t frm_len = quic_int_getsize(h3c->id_goaway);
+	uint64_t id_goaway;
+	size_t frm_len;
 	size_t xfer;
 
 	TRACE_ENTER(H3_EV_H3C_END, h3c->qcc->conn);
+
+	/* RFC 9114 5.2. Connection Shutdown
+	 *
+	 * The GOAWAY frame contains an identifier that
+	 * indicates to the receiver the range of requests or pushes that were
+	 * or might be processed in this connection. The server sends a client-
+	 * initiated bidirectional stream ID; the client sends a push ID.
+	 */
+	id_goaway = !conn_is_back(h3c->qcc->conn) ?
+	  h3c->qcc->largest_bidi_r : 0;
 
 	if (!qcs) {
 		TRACE_ERROR("control stream not initialized", H3_EV_H3C_END, h3c->qcc->conn);
@@ -3152,9 +3196,10 @@ static int h3_send_goaway(struct h3c *h3c)
 
 	pos = b_make((char *)data, sizeof(data), 0, 0);
 
+	frm_len = quic_int_getsize(id_goaway);
 	b_quic_enc_int(&pos, H3_FT_GOAWAY, 0);
 	b_quic_enc_int(&pos, frm_len, 0);
-	b_quic_enc_int(&pos, h3c->id_goaway, 0);
+	b_quic_enc_int(&pos, id_goaway, 0);
 
 	res = qcc_get_stream_txbuf(qcs, &err, 0);
 	if (!res || b_room(res) < b_data(&pos) ||
@@ -3167,6 +3212,7 @@ static int h3_send_goaway(struct h3c *h3c)
 	xfer = b_force_xfer(res, &pos, b_data(&pos));
 	qcc_send_stream(qcs, 1, xfer);
 
+	h3c->id_shut_l = id_goaway;
 	h3c->flags |= H3_CF_GOAWAY_SENT;
 	TRACE_LEAVE(H3_EV_H3C_END, h3c->qcc->conn);
 	return 0;
@@ -3175,6 +3221,7 @@ static int h3_send_goaway(struct h3c *h3c)
 	/* Consider GOAWAY as sent even if not really the case. This will
 	 * block future stream opening using H3_REQUEST_REJECTED reset.
 	 */
+	h3c->id_shut_l = id_goaway;
 	h3c->flags |= H3_CF_GOAWAY_SENT;
 	TRACE_DEVEL("leaving in error", H3_EV_H3C_END, h3c->qcc->conn);
 	return 1;
@@ -3199,7 +3246,8 @@ static int h3_init(struct qcc *qcc)
 	h3c->ctrl_strm = NULL;
 	h3c->err = 0;
 	h3c->flags = 0;
-	h3c->id_goaway = 0;
+	h3c->id_shut_l = 0;
+	h3c->id_shut_r = 0;
 
 	qcc->ctx = h3c;
 	h3c->prx_counters = qc_counters(qcc->conn->target, &h3_stats_module);

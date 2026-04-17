@@ -98,11 +98,11 @@ static inline struct log_orig log_orig(enum log_orig_id id, uint16_t flags)
 
 /* build a log line for the session and an optional stream */
 size_t sess_build_logline_orig(struct session *sess, struct stream *s, char *dst, size_t maxsize,
-                            struct lf_expr *lf_expr, struct log_orig orig);
+                            const struct lf_expr *lf_expr, struct log_orig orig);
 
 /* wrapper for sess_build_logline_orig(), uses LOG_ORIG_UNSPEC log origin */
 static inline size_t sess_build_logline(struct session *sess, struct stream *s, char *dst, size_t maxsize,
-                                     struct lf_expr *lf_expr)
+                                     const struct lf_expr *lf_expr)
 {
 	return sess_build_logline_orig(sess, s, dst, maxsize, lf_expr,
 	                               log_orig(LOG_ORIG_UNSPEC, LOG_ORIG_FL_NONE));
@@ -196,11 +196,22 @@ char *update_log_hdr(const time_t time);
 char * get_format_pid_sep1(int format, size_t *len);
 char * get_format_pid_sep2(int format, size_t *len);
 
+void generate_unique_id(struct ist *dst, struct session *sess, struct stream *strm, struct lf_expr *format);
+
+static inline struct ist stream_generate_unique_id(struct stream *strm, struct lf_expr *format)
+{
+	if (!isttest(strm->unique_id)) {
+		generate_unique_id(&strm->unique_id, strm_sess(strm), strm, format);
+	}
+
+	return strm->unique_id;
+}
+
 /*
  * Builds a log line for the stream (must be valid).
  */
 static inline size_t build_logline_orig(struct stream *s, char *dst, size_t maxsize,
-                                     struct lf_expr *lf_expr, struct log_orig orig)
+                                     const struct lf_expr *lf_expr, struct log_orig orig)
 {
 	return sess_build_logline_orig(strm_sess(s), s, dst, maxsize, lf_expr, orig);
 }
@@ -208,7 +219,7 @@ static inline size_t build_logline_orig(struct stream *s, char *dst, size_t maxs
 /*
  * Wrapper for build_logline_orig, uses LOG_ORIG_UNSPEC log origin
  */
-static inline size_t build_logline(struct stream *s, char *dst, size_t maxsize, struct lf_expr *lf_expr)
+static inline size_t build_logline(struct stream *s, char *dst, size_t maxsize, const struct lf_expr *lf_expr)
 {
 	return build_logline_orig(s, dst, maxsize, lf_expr,
 	                          log_orig(LOG_ORIG_UNSPEC, LOG_ORIG_FL_NONE));
