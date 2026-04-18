@@ -30,6 +30,9 @@ jobs:
       run: |
         dnf -y install awk procps-ng diffutils git zlib-devel pcre2-devel 'perl(FindBin)' perl-IPC-Cmd 'perl(File::Copy)' 'perl(File::Compare)' lua-devel socat findutils systemd-devel clang openssl-devel.x86_64
         dnf -y install 'perl(FindBin)' 'perl(File::Compare)' perl-IPC-Cmd 'perl(File::Copy)' glibc-devel.i686 lua-devel.i686 lua-devel.x86_64 systemd-devel.i686 zlib-ng-compat-devel.i686 libatomic.i686 openssl-devel.i686
+    - name: disable SELinux
+      run: |
+        sudo setenforce 0
     - uses: ./.github/actions/setup-vtest
     - name: Compile HAProxy with ${{ matrix.platform.cc }}
       run: |
