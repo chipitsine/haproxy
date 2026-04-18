@@ -221,7 +221,7 @@ build_quictls () {
         mkdir -p ${BUILDSSL_DESTDIR}/include
         cp -r include/* ${BUILDSSL_DESTDIR}/include
     else
-        ./config shared no-tests ${QUICTLS_EXTRA_ARGS:-} --prefix="${BUILDSSL_DESTDIR}" --openssldir="${BUILDSSL_DESTDIR}" --libdir=lib -DPURIFY
+        ./Configure shared no-tests ${QUICTLS_EXTRA_ARGS:-} --prefix="${BUILDSSL_DESTDIR}" --openssldir="${BUILDSSL_DESTDIR}" --libdir=lib -DPURIFY
         if [ -z "${QUICTLS_VERSION##OpenSSL_1_1_1*}" ]; then
             make all
         else
