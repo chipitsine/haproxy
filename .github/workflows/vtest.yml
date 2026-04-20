@@ -111,7 +111,7 @@ jobs:
         echo | ${{ matrix.CC }} -dM -xc -E -
         echo "::endgroup::"
         make -j$(nproc) all \
-          ERR=1 \
+          ERR=1 V=1 \
           TARGET=${{ matrix.TARGET }} \
           CC=${{ matrix.CC }} \
           DEBUG="-DDEBUG_POOL_INTEGRITY -DDEBUG_UNIT" \
