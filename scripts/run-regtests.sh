@@ -383,7 +383,6 @@ if [ -n "$testlist" ]; then
   if [ $? -eq 0 ]; then
     echo "########################## Fatal shell syntax errors ##########################"
     _vtresult=1
-    break
   fi
 else
   echo "No tests found that meet the required criteria"
