@@ -380,11 +380,14 @@ if [ -n "$testlist" ]; then
   eval $cmd
   _vtresult=$?
 
+
+  echo "point 1"
   grep -rE --include="LOG" "sh: -c: line [0-9]+: syntax error|syntax error near unexpected token" "$TESTDIR"
   if [ $? -eq 0 ]; then
     echo "########################## Fatal shell syntax errors ##########################"
     _vtresult=1
   fi
+  echo "point 2"
 else
   echo "No tests found that meet the required criteria"
 fi
