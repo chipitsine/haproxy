@@ -139,13 +139,18 @@ jobs:
     - name: Show VTest results
       if: ${{ failure() && steps.vtest.outcome == 'failure' }}
       run: |
+        failed=false
+        shopt -s nullglob
         for folder in ${TMPDIR:-/tmp}/haregtests-*/vtc.*; do
           printf "::group::"
           cat $folder/INFO
           cat $folder/LOG
           echo "::endgroup::"
+          failed=true
         done
-        exit 1
+        if [ "$failed" = true ]; then
+          exit 1;
+        fi
     - name: Run Unit tests
       id: unittests
       run: |
@@ -163,6 +168,7 @@ jobs:
       if: ${{ failure() && steps.vtest.outcome == 'failure' }}
       run: |
         failed=false
+        shopt -s nullglob
         for file in /tmp/core/core.*; do
           failed=true
           printf "::group::"
