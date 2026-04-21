@@ -140,8 +140,8 @@ jobs:
       if: ${{ failure() && steps.vtest.outcome == 'failure' }}
       run: |
         failed=false
-        shopt -s nullglob
         for folder in ${TMPDIR:-/tmp}/haregtests-*/vtc.*; do
+          [ -e "$file" ] || continue
           printf "::group::"
           cat $folder/INFO
           cat $folder/LOG
@@ -168,8 +168,8 @@ jobs:
       if: ${{ failure() && steps.vtest.outcome == 'failure' }}
       run: |
         failed=false
-        shopt -s nullglob
         for file in /tmp/core/core.*; do
+          [ -e "$file" ] || continue
           failed=true
           printf "::group::"
           gdb -ex 'thread apply all bt full' ./haproxy $file
