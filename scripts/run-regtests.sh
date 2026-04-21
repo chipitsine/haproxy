@@ -380,7 +380,7 @@ if [ -n "$testlist" ]; then
   eval $cmd
   _vtresult=$?
 
-  if grep -RIE --include="LOG" "sh: -c: line [0-9]+: syntax error|syntax error near unexpected token" "$TESTDIR"; then
+  if grep -RIEq --include="LOG" "sh: -c: line [0-9]+: syntax error|syntax error near unexpected token" "$TESTDIR"; then
     echo "########################## Fatal shell syntax errors ##########################"
     _vtresult=1
   fi
