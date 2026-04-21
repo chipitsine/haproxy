@@ -379,8 +379,8 @@ if [ -n "$testlist" ]; then
   cmd="$VTEST_PROGRAM -b $((2<<20)) -k -t ${VTEST_TIMEOUT} -L $verbose $debug $jobcount $vtestparams $testlist"
   eval $cmd
   _vtresult=$?
-  grep -r -E 'sh: -c: line [0-9]+: syntax error|syntax error near unexpected token' "$TESTDIR"
-  if [ $? -eq 0 ]; then
+
+  if grep -RIE --include="LOG" "sh: -c: line [0-9]+: syntax error|syntax error near unexpected token" "$TESTDIR"; then
     echo "########################## Fatal shell syntax errors ##########################"
     _vtresult=1
   fi
