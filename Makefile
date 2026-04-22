@@ -1269,7 +1269,7 @@ endif
 
 # Target to run the regression testing script files.
 reg-tests:
-	$(Q)$(REG_TEST_SCRIPT) --type "$(REGTESTS_TYPES)" $(REGTEST_ARGS) $(REG_TEST_FILES)
+	$(Q)$(REG_TEST_SCRIPT) --type "$(REGTESTS_TYPES)" $(REGTEST_ARGS) --keep-logs $(REG_TEST_FILES)
 .PHONY: $(REGTEST_ARGS)
 
 reg-tests-help:
