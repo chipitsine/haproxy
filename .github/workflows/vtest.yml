@@ -178,3 +178,12 @@ jobs:
         if [ "$failed" = true ]; then
           exit 1;
         fi
+
+    - name: Logs upload
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: logs-${{ steps.generate-cache-key.outputs.key }}
+        path: /tmp/hareg*/
+        retention-days: 6
+
