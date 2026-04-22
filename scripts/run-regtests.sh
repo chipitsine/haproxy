@@ -382,7 +382,7 @@ if [ -n "$testlist" ]; then
 
 
   echo "point 1"
-  grep -rE --include="LOG" "sh: -c: line [0-9]+: syntax error|syntax error near unexpected token" "$TESTDIR"
+  grep -rE --include="LOG" "sh: -c: line [0-9]+: syntax error|syntax error near unexpected token|Syntax error" "$TESTDIR"
   if [ $? -eq 0 ]; then
     echo "########################## Fatal shell syntax errors ##########################"
     _vtresult=1
