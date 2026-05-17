@@ -139,7 +139,25 @@ jobs:
     - name: Run VTest for HAProxy ${{ steps.show-version.outputs.version }}
       id: vtest
       run: |
-        make reg-tests VTEST_PROGRAM=${{ github.workspace }}/vtest/vtest REGTESTS_TYPES=default,bug,devel
+        make reg-tests VTEST_PROGRAM=${{ github.workspace }}/vtest/vtest ${{ case(contains(matrix.name, 'ASAN'), 'REGTESTS_KEEP_LOGS=1 ', '') }} REGTESTS_TYPES=default,bug,devel
+    - name: Show ASAN findings
+      if: ${{ contains(matrix.name, 'ASAN') }}
+      run: |
+        found=false
+        for folder in ${TMPDIR:-/tmp}/haregtests-*/vtc.*; do
+           if [ -d "$folder" ]; then
+             if grep -r Sanitizer $folder >/dev/null 2>&1; then
+                found=true
+                printf "::group::"
+                cat $folder/INFO
+                cat $folder/LOG
+                echo "::endgroup::"
+             fi
+           fi
+        done
+        if [ "$found" = true ]; then
+          exit 1;
+        fi
     - name: Show VTest results
       if: ${{ failure() && steps.vtest.outcome == 'failure' }}
       run: |
