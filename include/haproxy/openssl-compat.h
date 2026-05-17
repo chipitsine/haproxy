@@ -383,6 +383,101 @@ static inline unsigned long ERR_peek_error_func(const char **func)
 #if (HA_OPENSSL_VERSION_NUMBER >= 0x40000000L) && !defined(OPENSSL_IS_AWSLC) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_OPENSSL_WOLFSSL)
 # define X509_STORE_getX_objects(x) X509_STORE_get1_objects(x)
 # define sk_X509_OBJECT_popX_free(x, y) sk_X509_OBJECT_pop_free(x,y)
+#elif defined(USE_OPENSSL_WOLFSSL)
+/* wolfSSL's X509_STORE_get0_objects() rebuilds store->objs on every call when
+ * WOLFSSL_SIGNER_DER_CERT is active (enabled by --enable-haproxy), freeing
+ * the objects from the previous call.  Any caller that holds a pointer into
+ * the old result therefore gets a use-after-free on the next call.
+ *
+ * Work around this by wrapping wolfSSL_X509_STORE_get0_objects() to return an
+ * independent, caller-owned copy: each X509 in the snapshot is protected with
+ * X509_up_ref so that wolfSSL's internal cleanup cannot drop the ref to zero
+ * while the copy is still live.  CRL objects are included when the build
+ * provides X509_CRL_up_ref (OPENSSL_ALL or recent wolfSSL); older wolfSSL
+ * builds that lack the symbol silently omit CRL entries.  Callers must release
+ * the returned stack with sk_X509_OBJECT_pop_free(..., X509_OBJECT_free).
+ */
+static inline STACK_OF(X509_OBJECT) *
+ha_wolfssl_X509_STORE_get_objects(X509_STORE *store)
+{
+	STACK_OF(X509_OBJECT) *orig;
+	STACK_OF(X509_OBJECT) *ret;
+	int i, n;
+
+	if (!store)
+		return NULL;
+
+	orig = wolfSSL_X509_STORE_get0_objects(store);
+	if (!orig)
+		return NULL;
+
+	ret = wolfSSL_sk_X509_OBJECT_new();
+	if (!ret)
+		return NULL;
+
+	n = sk_X509_OBJECT_num(orig);
+	for (i = 0; i < n; i++) {
+		X509_OBJECT *src = sk_X509_OBJECT_value(orig, i);
+		X509_OBJECT *obj;
+		int type;
+
+		if (!src)
+			continue;
+
+		type = X509_OBJECT_get_type(src);
+		obj = X509_OBJECT_new();
+		if (!obj)
+			goto err;
+
+		if (type == X509_LU_X509) {
+			X509 *x = X509_OBJECT_get0_X509(src);
+			if (!x) {
+				X509_OBJECT_free(obj);
+				continue;
+			}
+			X509_up_ref(x);
+			obj->type = X509_LU_X509;
+			obj->data.x509 = x;
+		}
+		else if (type == X509_LU_CRL) {
+#ifdef X509_CRL_up_ref
+			/* wolfSSL_X509_CRL_up_ref requires OPENSSL_ALL and was
+			 * absent from older wolfSSL builds; skip CRL objects
+			 * when the symbol is unavailable. */
+			X509_CRL *crl = X509_OBJECT_get0_X509_CRL(src);
+			if (!crl) {
+				X509_OBJECT_free(obj);
+				continue;
+			}
+			X509_CRL_up_ref(crl);
+			obj->type = X509_LU_CRL;
+			obj->data.crl = crl;
+#else
+			X509_OBJECT_free(obj);
+			continue;
+#endif
+		}
+		else {
+			X509_OBJECT_free(obj);
+			continue;
+		}
+
+		if (wolfSSL_sk_X509_OBJECT_push(ret, obj) <= 0) {
+			/* X509_OBJECT_free calls X509_free or X509_CRL_free,
+			 * which undoes the up_ref above. */
+			X509_OBJECT_free(obj);
+			goto err;
+		}
+	}
+
+	return ret;
+
+err:
+	sk_X509_OBJECT_pop_free(ret, X509_OBJECT_free);
+	return NULL;
+}
+# define X509_STORE_getX_objects(x) ha_wolfssl_X509_STORE_get_objects(x)
+# define sk_X509_OBJECT_popX_free(x, y) sk_X509_OBJECT_pop_free(x, y)
 #else
 # define X509_STORE_getX_objects(x) X509_STORE_get0_objects(x)
 # define sk_X509_OBJECT_popX_free(x, y) ({})
