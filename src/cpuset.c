@@ -30,6 +30,8 @@ int ha_cpuset_set(struct hap_cpuset *set, int cpu)
 #else
 	return 1;
 #endif
+
+	return 1;
 }
 
 int ha_cpuset_clr(struct hap_cpuset *set, int cpu)
@@ -47,6 +49,8 @@ int ha_cpuset_clr(struct hap_cpuset *set, int cpu)
 #else
 	return 1;
 #endif
+
+	return 1;
 }
 
 void ha_cpuset_and(struct hap_cpuset *dst, struct hap_cpuset *src)
@@ -103,6 +107,8 @@ int ha_cpuset_count(const struct hap_cpuset *set)
 #else
 	return 0;
 #endif
+
+	return 0;
 }
 
 int ha_cpuset_ffs(const struct hap_cpuset *set)
@@ -129,6 +135,8 @@ int ha_cpuset_ffs(const struct hap_cpuset *set)
 #else
 	return 0;
 #endif
+
+	return 0;
 }
 
 void ha_cpuset_assign(struct hap_cpuset *dst, struct hap_cpuset *src)
@@ -159,6 +167,8 @@ int ha_cpuset_isequal(const struct hap_cpuset *dst, const struct hap_cpuset *src
 #else
 	return 0;
 #endif
+
+	return 0;
 }
 
 int ha_cpuset_size()
@@ -171,6 +181,8 @@ int ha_cpuset_size()
 #else
 	return 0;
 #endif
+
+	return 0;
 }
 
 /* Parse cpu sets. Each CPU set is either a unique number between 0 and
