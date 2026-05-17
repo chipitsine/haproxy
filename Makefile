@@ -1265,7 +1265,7 @@ endif
 
 # Target to run the regression testing script files.
 reg-tests:
-	$(Q)$(REG_TEST_SCRIPT) --type "$(REGTESTS_TYPES)" $(REGTEST_ARGS) $(REG_TEST_FILES)
+	$(Q)$(REG_TEST_SCRIPT) --type "$(REGTESTS_TYPES)" $(if $(REGTESTS_KEEP_LOGS),--keep-logs) $(REGTEST_ARGS) $(REG_TEST_FILES)
 .PHONY: $(REGTEST_ARGS)
 
 reg-tests-help:
@@ -1287,6 +1287,9 @@ reg-tests-help:
 	@echo
 	@echo "To run tests with specific types:"
 	@echo "    $$ REGTESTS_TYPES=slow,default make reg-tests"
+	@echo
+	@echo "To keep all reg-tests logs:"
+	@echo "    $$ REGTESTS_KEEP_LOGS=1 make reg-tests"
 	@echo
 	@echo "with 'default,bug,devel,slow' as default value for REGTESTS_TYPES variable."
 	@echo
