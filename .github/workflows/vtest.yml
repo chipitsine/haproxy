@@ -140,6 +140,10 @@ jobs:
       id: vtest
       run: |
         make reg-tests VTEST_PROGRAM=${{ github.workspace }}/vtest/vtest REGTESTS_TYPES=default,bug,devel ${{ case(contains(matrix.name, 'ASAN'), '-- --keep-logs', '') }}
+    - name: Run VTest for HAProxy ${{ steps.show-version.outputs.version }} (slow and broken tests)
+      if: ${{ contains(matrix.name, 'ASAN') }}
+      run: |
+        make reg-tests VTEST_PROGRAM=${{ github.workspace }}/vtest/vtest REGTESTS_TYPES=slow,broken,experimental -- --keep-logs || /bin/true
     - name: Show ASAN findings
       if: ${{ contains(matrix.name, 'ASAN') }}
       run: |
