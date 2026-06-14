@@ -181,6 +181,9 @@ struct ncbmbuf ncbmb_make(char *area, ncb_sz_t size, ncb_sz_t head)
 	struct ncbmbuf buf;
 	ncb_sz_t size_bm;
 
+	if (!area)
+		return NCBMBUF_NULL;
+
 	size_bm = (size + 8) / 9;
 
 	buf.area = area;
