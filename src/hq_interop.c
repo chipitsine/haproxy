@@ -39,12 +39,22 @@ static ssize_t hq_interop_rcv_buf_req(struct qcs *qcs, struct buffer *b, int fin
 	}
 
 	if (!data || !HTTP_IS_SPHT(*ptr)) {
+		if (b_size(b) - b_room(b) >= qcm_stream_rx_bufsz()) {
+			fprintf(stderr, "content too big\n");
+			return -1;
+		}
+
 		fprintf(stderr, "truncated stream\n");
 		return 0;
 	}
 
 	ptr++;
 	if (!--data) {
+		if (b_size(b) - b_room(b) >= qcm_stream_rx_bufsz()) {
+			fprintf(stderr, "content too big\n");
+			return -1;
+		}
+
 		fprintf(stderr, "truncated stream\n");
 		return 0;
 	}
@@ -62,6 +72,11 @@ static ssize_t hq_interop_rcv_buf_req(struct qcs *qcs, struct buffer *b, int fin
 	}
 
 	if (!data) {
+		if (b_size(b) - b_room(b) >= qcm_stream_rx_bufsz()) {
+			fprintf(stderr, "content too big\n");
+			return -1;
+		}
+
 		fprintf(stderr, "truncated stream\n");
 		return 0;
 	}
@@ -100,7 +115,6 @@ static ssize_t hq_interop_rcv_buf_res(struct qcs *qcs, struct buffer *b, int fin
 	struct htx *htx;
 	struct htx_sl *sl;
 	struct buffer *htx_buf;
-	const struct stream *strm = __sc_strm(qcs->sd->sc);
 	const unsigned int flags = HTX_SL_F_VER_11|HTX_SL_F_XFER_LEN;
 	size_t to_copy = b_data(b);
 	size_t htx_sent = 0;
@@ -110,7 +124,7 @@ static ssize_t hq_interop_rcv_buf_res(struct qcs *qcs, struct buffer *b, int fin
 	BUG_ON(!htx_buf);
 	htx = htx_from_buf(htx_buf);
 
-	if (htx_is_empty(htx) && !strm->scb->bytes_in) {
+	if (htx_is_empty(htx) && !qcs->rx.offset) {
 		/* First data transfer, add HTX response start-line first. */
 		sl = htx_add_stline(htx, HTX_BLK_RES_SL, flags,
 		                    ist("HTTP/1.0"), ist("200"), ist(""));
@@ -260,6 +274,14 @@ static size_t hq_interop_snd_buf(struct qcs *qcs, struct buffer *buf,
 
 		/* only body is transferred on HTTP/0.9 */
 		case HTX_BLK_RES_SL:
+			sl = htx_get_blk_ptr(htx, blk);
+			if (!(sl->flags & HTX_SL_F_XFER_LEN))
+				qcs->flags |= QC_SF_UNKNOWN_PL_LENGTH;
+			htx_remove_blk(htx, blk);
+			total += bsize;
+			count -= bsize;
+			break;
+
 		case HTX_BLK_TLR:
 		case HTX_BLK_EOT:
 		default:
