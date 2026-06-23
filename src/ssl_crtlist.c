@@ -543,6 +543,7 @@ int crtlist_load_crt(char *crt_path, struct ckch_conf *cc, struct crtlist *newli
 				goto error;
 			}
 
+			ckch_conf_clean(&ckchs->conf);
 			ckchs->conf = *cc;
 
 			entry->node.key = ckchs;
