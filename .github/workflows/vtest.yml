@@ -88,7 +88,6 @@ jobs:
       run: |
         brew install socat
         brew install lua
-    - uses: ./.github/actions/setup-vtest
     - name: Install SSL ${{ matrix.ssl }}
       if: ${{ matrix.ssl && matrix.ssl != 'stock' && steps.cache_ssl.outputs.cache-hit != 'true' }}
       run: env ${{ matrix.ssl }} scripts/build-ssl.sh
@@ -127,18 +126,7 @@ jobs:
         echo "version=$(haproxy -vq)" >> $GITHUB_OUTPUT
     - name: Run VTest for HAProxy ${{ steps.show-version.outputs.version }}
       id: vtest
-      run: |
-        make reg-tests VTEST_PROGRAM=${{ github.workspace }}/vtest/vtest REGTESTS_TYPES=default,bug,devel
-    - name: Show VTest results
-      if: ${{ failure() && steps.vtest.outcome == 'failure' }}
-      run: |
-        for folder in ${TMPDIR:-/tmp}/haregtests-*/vtc.*; do
-          printf "::group::"
-          cat $folder/INFO
-          cat $folder/LOG
-          echo "::endgroup::"
-        done
-        exit 1
+      uses: ./.github/actions/vtest
     - name: Run Unit tests
       id: unittests
       run: |
@@ -152,16 +140,3 @@ jobs:
           echo "::endgroup::"
         done
         exit 1
-    - name: Show coredumps
-      if: ${{ failure() && steps.vtest.outcome == 'failure' }}
-      run: |
-        failed=false
-        for file in /tmp/core/core.*; do
-          failed=true
-          printf "::group::"
-          gdb -ex 'thread apply all bt full' ./haproxy $file
-          echo "::endgroup::"
-        done
-        if [ "$failed" = true ]; then
-          exit 1;
-        fi

@@ -31,7 +31,6 @@ jobs:
       run: |
         dnf -y install awk diffutils git zlib-devel pcre2-devel 'perl(FindBin)' perl-IPC-Cmd 'perl(File::Copy)' 'perl(File::Compare)' lua-devel socat findutils systemd-devel clang openssl-devel.x86_64 procps-ng
         dnf -y install 'perl(FindBin)' 'perl(File::Compare)' perl-IPC-Cmd 'perl(File::Copy)' glibc-devel.i686 lua-devel.i686 lua-devel.x86_64 systemd-devel.i686 zlib-ng-compat-devel.i686 libatomic.i686 openssl-devel.i686 pcre2-devel.i686
-    - uses: ./.github/actions/setup-vtest
     - name: Compile HAProxy with ${{ matrix.platform.cc }}
       run: |
         make -j3 CC=${{ matrix.platform.cc }} V=1 ERR=1 TARGET=linux-glibc DEBUG="-DDEBUG_POOL_INTEGRITY -DDEBUG_UNIT" USE_PROMEX=1 USE_OPENSSL=1 USE_QUIC=1 USE_ZLIB=1 USE_PCRE2=1 USE_PCRE2_JIT=1 USE_LUA=1 ADDLIB="${{ matrix.platform.ADDLIB_ATOMIC }}" ARCH_FLAGS="${{ matrix.platform.ARCH_FLAGS }}"
@@ -53,17 +52,7 @@ jobs:
         update-crypto-policies
     - name: Run VTest for HAProxy ${{ steps.show-version.outputs.version }}
       id: vtest
-      run: |
-        make reg-tests VTEST_PROGRAM=${{ github.workspace }}/vtest/vtest REGTESTS_TYPES=default,bug,devel
-    - name: Show VTest results
-      if: ${{ failure() && steps.vtest.outcome == 'failure' }}
-      run: |
-        for folder in ${TMPDIR:-/tmp}/haregtests-*/vtc.*; do
-          printf "::group::"
-          cat $folder/INFO
-          cat $folder/LOG
-          echo "::endgroup::"
-        done
+      uses: ./.github/actions/vtest
     - name: Run Unit tests
       id: unittests
       run: |

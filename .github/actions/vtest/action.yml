@@ -1,0 +1,11 @@
+name: vtest
+description: Setup VTest and publish failing VTest logs automatically in a post step.
+
+runs:
+  using: node24
+  main: dist/main.js
+  post: dist/post.js
+  post-if: failure()
+
+
+
