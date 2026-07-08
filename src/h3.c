@@ -45,12 +45,8 @@
 #include <haproxy/trace.h>
 
 /* trace source and events */
-static void h3_trace(enum trace_level level, uint64_t mask,
-                     const struct trace_source *src,
-                     const struct ist where, const struct ist func,
-                     const void *a1, const void *a2, const void *a3, const void *a4);
 
-static const struct trace_event h3_trace_events[] = {
+static const struct trace_event h3_trace_events[] __maybe_unused = {
 #define           H3_EV_RX_FRAME      (1ULL <<  0)
 	{ .mask = H3_EV_RX_FRAME,     .name = "rx_frame",    .desc = "receipt of any H3 frame" },
 #define           H3_EV_RX_DATA       (1ULL <<  1)
@@ -79,6 +75,13 @@ static const struct trace_event h3_trace_events[] = {
 	{ .mask = H3_EV_STRM_SEND,    .name = "strm_send",   .desc = "sending data for stream" },
 	{ }
 };
+
+#if defined(USE_TRACE)
+
+static void h3_trace(enum trace_level level, uint64_t mask,
+                     const struct trace_source *src,
+                     const struct ist where, const struct ist func,
+                     const void *a1, const void *a2, const void *a3, const void *a4);
 
 static const struct name_desc h3_trace_lockon_args[4] = {
 	/* arg1 */ { /* already used by the connection */ },
@@ -112,6 +115,8 @@ struct trace_source trace_h3 = {
 
 #define TRACE_SOURCE    &trace_h3
 INITCALL1(STG_REGISTER, trace_register_source, TRACE_SOURCE);
+
+#endif /* USE_TRACE */
 
 #if defined(DEBUG_H3)
 #define h3_debug_printf fprintf
@@ -278,7 +283,7 @@ static ssize_t h3_init_uni_stream(struct h3c *h3c, struct qcs *qcs,
 		 * streams that have unknown or unsupported types.
 		 */
 		TRACE_STATE("abort reading on unknown uni stream type", H3_EV_H3S_NEW, qcs->qcc->conn, qcs);
-		qcc_abort_stream_read(qcs);
+		qcc_abort_stream_read(qcs, H3_ERR_NO_ERROR);
 		goto err;
 	}
 
@@ -634,6 +639,8 @@ static struct ist _h3_trim_header(struct ist value)
 	return v;
 }
 
+#if defined(USE_TRACE)
+
 static void _h3_trace_header(const struct ist n, const struct ist v,
                              uint64_t mask, const struct ist trc_loc, const char *func,
                              const struct qcc *qcc, const struct qcs *qcs)
@@ -678,6 +685,17 @@ static void h3_trace_header(const struct ist n, const struct ist v,
 	    TRACE_ENABLED(TRACE_LEVEL_USER, mask, qcc ? qcc->conn : 0, qcs, 0, 0))
 		_h3_trace_header(n, v, mask, trc_loc, func, qcc, qcs);
 }
+
+#else /* USE_TRACE not defined */
+
+/* dummy function */
+static inline void h3_trace_header(const struct ist n, const struct ist v,
+                                   uint64_t mask, const struct ist trc_loc, const char *func,
+                                   const struct qcc *qcc, const struct qcs *qcs)
+{
+}
+
+#endif /* USE_TRACE */
 
 /* Parse from buffer <buf> a H3 HEADERS frame of length <len>. Data are copied
  * in a local HTX buffer and transfer to the stream connector layer. <fin> must be
@@ -744,11 +762,13 @@ static ssize_t h3_req_headers_to_htx(struct qcs *qcs, const struct buffer *buf,
 		goto out;
 	}
 
+#if defined(USE_TRACE)
 	if ((TRACE_SOURCE)->verbosity >= H3_VERB_ADVANCED &&
 	    TRACE_ENABLED(TRACE_LEVEL_USER, H3_EV_RX_FRAME|H3_EV_RX_HDR, qcs->qcc->conn, 0, 0, 0)) {
 		for (i = 0; list[i].n.len; ++i)
 			h3_trace_header(list[i].n, list[i].v, H3_EV_RX_HDR, ist(TRC_LOC), __FUNCTION__, qcs->qcc, qcs);
 	}
+#endif
 
 	if (!b_alloc(&htx_buf, DB_SE_RX)) {
 		TRACE_ERROR("HTX buffer alloc failure", H3_EV_RX_FRAME|H3_EV_RX_HDR, qcs->qcc->conn, qcs);
@@ -1238,12 +1258,14 @@ static ssize_t h3_resp_headers_to_htx(struct qcs *qcs, const struct buffer *buf,
 		goto out;
 	}
 
+#if defined(USE_TRACE)
 	if ((TRACE_SOURCE)->verbosity >= H3_VERB_ADVANCED &&
 	    TRACE_ENABLED(TRACE_LEVEL_USER, H3_EV_RX_FRAME|H3_EV_RX_HDR, qcs->qcc->conn, 0, 0, 0)) {
 		int i;
 		for (i = 0; list[i].n.len; ++i)
 			h3_trace_header(list[i].n, list[i].v, H3_EV_RX_HDR, ist(TRC_LOC), __FUNCTION__, qcs->qcc, qcs);
 	}
+#endif
 
 	if (!(appbuf = qcc_get_stream_rxbuf(qcs))) {
 		TRACE_ERROR("buffer alloc failure", H3_EV_RX_FRAME|H3_EV_RX_HDR, qcs->qcc->conn, qcs);
@@ -1886,7 +1908,7 @@ static ssize_t h3_rcv_buf(struct qcs *qcs, struct buffer *b, int fin)
 
 		/* FIN received, ensure body length is conform to any content-length header. */
 		if ((h3s->flags & H3_SF_HAVE_CLEN) && h3_check_body_size(qcs, 1)) {
-			qcc_abort_stream_read(qcs);
+			qcc_abort_stream_read(qcs, h3s->err);
 			qcc_reset_stream(qcs, h3s->err, se_tevt_type_proto_err);
 			goto done;
 		}
@@ -2111,14 +2133,14 @@ static ssize_t h3_rcv_buf(struct qcs *qcs, struct buffer *b, int fin)
 		/* TODO Only unimplemented CONNECT reports H3_ERR_REQUEST_REJECTED here. */
 		const int tevt =
 		  (h3s->err == H3_ERR_REQUEST_REJECTED) ? 0 : se_tevt_type_proto_err;
-		qcc_abort_stream_read(qcs);
+		qcc_abort_stream_read(qcs, h3s->err);
 		qcc_reset_stream(qcs, h3s->err, tevt);
-		total = b_data(b);
+		total += b_data(b);
 		goto done;
 	}
 	else if (h3c->err) {
 		qcc_set_error(qcs->qcc, h3c->err, 1, muxc_tevt_type_proto_err);
-		total = b_data(b);
+		total += b_data(b);
 		goto done;
 	}
 	else if (unlikely(ret < 0)) {
@@ -2366,12 +2388,14 @@ static int h3_req_headers_send(struct qcs *qcs, struct htx *htx)
 		h3_trace_header(ist(":authority"), auth, H3_EV_TX_HDR, ist(TRC_LOC), __FUNCTION__, qcs->qcc, qcs);
 	}
 
+#if defined(USE_TRACE)
 	if ((TRACE_SOURCE)->verbosity >= H3_VERB_ADVANCED &&
 	    TRACE_ENABLED(TRACE_LEVEL_USER, H3_EV_TX_FRAME|H3_EV_TX_HDR, qcs->qcc->conn, 0, 0, 0)) {
 		int i;
 		for (i = 0; list[i].n.len; ++i)
 			h3_trace_header(list[i].n, list[i].v, H3_EV_TX_HDR, ist(TRC_LOC), __FUNCTION__, qcs->qcc, qcs);
 	}
+#endif
 
 	if (!(sl->flags & HTX_SL_F_XFER_LEN)) {
 		/* Extra care required for HTTP/1 responses without Content-Length nor
@@ -2508,12 +2532,14 @@ static int h3_resp_headers_send(struct qcs *qcs, struct htx *htx)
 				h3s->flags &= ~H3_SF_SENT_INTERIM;
 			}
 
+#if defined(USE_TRACE)
 			if ((TRACE_SOURCE)->verbosity >= H3_VERB_ADVANCED) {
 				char sts[4];
 				h3_trace_header(ist(":status"), ist(ultoa_r(status, sts, sizeof(sts))),
 				                H3_EV_TX_FRAME|H3_EV_TX_HDR, ist(TRC_LOC), __FUNCTION__,
 				                qcs->qcc, qcs);
 			}
+#endif
 		}
 		else if (type == HTX_BLK_HDR) {
 			if (unlikely(hdr >= sizeof(list) / sizeof(list[0]) - 1)) {
@@ -2538,12 +2564,14 @@ static int h3_resp_headers_send(struct qcs *qcs, struct htx *htx)
 
 	list[hdr].n = ist("");
 
+#if defined(USE_TRACE)
 	if ((TRACE_SOURCE)->verbosity >= H3_VERB_ADVANCED &&
 	    TRACE_ENABLED(TRACE_LEVEL_USER, H3_EV_TX_FRAME|H3_EV_TX_HDR, qcs->qcc->conn, 0, 0, 0)) {
 		int i;
 		for (i = 0; list[i].n.len; ++i)
 			h3_trace_header(list[i].n, list[i].v, H3_EV_TX_HDR, ist(TRC_LOC), __FUNCTION__, qcs->qcc, qcs);
 	}
+#endif
 
  retry:
 	res = smallbuf ? qcc_get_stream_txbuf(qcs, &err, 1) :
@@ -3113,8 +3141,7 @@ static size_t h3_snd_buf(struct qcs *qcs, struct buffer *buf, size_t count, char
 	        /* Generate a STOP_SENDING if full response transferred before
 	         * receiving the full request.
 	         */
-	        qcs->err = H3_ERR_NO_ERROR;
-	        qcc_abort_stream_read(qcs);
+	        qcc_abort_stream_read(qcs, H3_ERR_NO_ERROR);
 	}
 #endif
 
@@ -3255,6 +3282,21 @@ static void h3_lclose(struct qcs *qcs, enum qcc_app_ops_lclose_mode mode)
 {
 	TRACE_ENTER(H3_EV_H3S_END, qcs->qcc->conn, qcs);
 
+	/* RFC 9114 4.1.1. Request Cancellation and Rejection
+	 *
+	 * Servers MUST NOT use the H3_REQUEST_REJECTED error code for requests
+	 * that were partially or fully processed. When a server abandons a
+	 * response after partial processing, it SHOULD abort its response
+	 * stream with the error code H3_REQUEST_CANCELLED.
+	 * Client SHOULD use the error code H3_REQUEST_CANCELLED to cancel requests.
+	 */
+
+	/* Following the above recommendations, H3_REQUEST_REJECTED is never
+	 * used in practice in haproxy as a server on shut as upper stream
+	 * layer is instantiated immediately with HEADERS content attached. The
+	 * only exception is for stream closure after GOAWAY emission.
+	 */
+
 	switch (mode) {
 	case QCC_APP_OPS_LCLO_MODE_NORMAL:
 		/* Close stream with FIN. This can only be performed if at
@@ -3262,24 +3304,33 @@ static void h3_lclose(struct qcs *qcs, enum qcc_app_ops_lclose_mode mode)
 		 * the connection with H3_FRAME_UNEXPECTED.
 		 */
 		if (qcs->tx.fc.off_soft) {
+			TRACE_STATE("close stream with empty fin", H3_EV_H3S_END, qcs->qcc->conn, qcs);
 			qcs->flags |= QC_SF_FIN_STREAM;
 			qcc_send_stream(qcs, 0, 0);
 		}
 		else {
-			qcc_reset_stream(qcs, 0, se_tevt_type_shutw);
+			TRACE_STATE("reset stream as no content emitted yet", H3_EV_H3S_END, qcs->qcc->conn, qcs);
+			qcc_reset_stream(qcs, H3_ERR_REQUEST_CANCELLED, se_tevt_type_shutw);
 		}
 		break;
 
 	case QCC_APP_OPS_LCLO_MODE_ABORT:
+		TRACE_STATE("cancel stream", H3_EV_H3S_END, qcs->qcc->conn, qcs);
 		qcc_reset_stream(qcs, H3_ERR_REQUEST_CANCELLED, se_tevt_type_cancelled);
 		break;
 
 	case QCC_APP_OPS_LCLO_MODE_KILL_CONN:
+		TRACE_STATE("kill stream", H3_EV_H3S_END, qcs->qcc->conn, qcs);
 		qcc_reset_stream(qcs, H3_ERR_EXCESSIVE_LOAD, se_tevt_type_cancelled);
 		if (!(qcs->qcc->flags & (QC_CF_ERR_CONN|QC_CF_ERRL))) {
 			qcc_set_error(qcs->qcc, H3_ERR_EXCESSIVE_LOAD, 1,
 			              muxc_tevt_type_graceful_shut);
 		}
+		break;
+
+	case QCC_APP_OPS_LCLO_MODE_READ:
+		TRACE_STATE("request stream read channel closure", H3_EV_H3S_END, qcs->qcc->conn, qcs);
+		qcc_abort_stream_read(qcs, H3_ERR_REQUEST_CANCELLED);
 		break;
 	}
 
@@ -3340,7 +3391,7 @@ static int h3_attach(struct qcs *qcs, void *conn_ctx)
 		BUG_ON(quic_stream_is_local(qcs->qcc, qcs->id));
 
 		TRACE_STATE("close stream outside of GOAWAY range", H3_EV_H3S_NEW, qcs->qcc->conn, qcs);
-		qcc_abort_stream_read(qcs);
+		qcc_abort_stream_read(qcs, H3_ERR_REQUEST_REJECTED);
 		qcc_reset_stream(qcs, H3_ERR_REQUEST_REJECTED, 0);
 	}
 
@@ -3599,6 +3650,8 @@ static inline const char *h3_ft_str(uint64_t type)
 	}
 }
 
+#if defined(USE_TRACE)
+
 /* h3 trace handler */
 static void h3_trace(enum trace_level level, uint64_t mask,
                      const struct trace_source *src,
@@ -3627,6 +3680,8 @@ static void h3_trace(enum trace_level level, uint64_t mask,
 		}
 	}
 }
+
+#endif
 
 /* Cancel a request on stream id <id>. This is useful when the client opens a
  * new stream but the MUX has already been released. A STOP_SENDING +

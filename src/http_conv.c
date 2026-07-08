@@ -263,7 +263,7 @@ static int sample_conv_url_dec(const struct arg *args, struct sample *smp, void 
 	  * before decoding.
 	 */
 	if (smp->flags & SMP_F_CONST || smp->data.u.str.size <= smp->data.u.str.data) {
-		struct buffer *str = get_trash_chunk_sz(smp->data.u.str.data + 1);
+		struct buffer *str = get_best_trash_chunk(&smp->data.u.str, smp->data.u.str.data+1);
 
 		if (!str)
 			return 0;
@@ -272,6 +272,9 @@ static int sample_conv_url_dec(const struct arg *args, struct sample *smp, void 
 		smp->data.u.str.size = str->size;
 		smp->flags &= ~SMP_F_CONST;
 	}
+
+	if (smp->data.u.str.size <= smp->data.u.str.data)
+		return 0;
 
 	/* Add final \0 required by url_decode(), and convert the input string. */
 	smp->data.u.str.area[smp->data.u.str.data] = '\0';

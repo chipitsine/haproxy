@@ -605,11 +605,11 @@ void httpclient_applet_io_handler(struct appctx *appctx)
 					hc->ops.req_payload(hc);
 
 					hc_htx = htxbuf(&hc->req.buf);
-					if (htx_is_empty(hc_htx))
+					if (htx_is_empty_noerr(hc_htx))
 						goto out;
 
 					htx = htx_from_buf(outbuf);
-					if (htx_is_empty(htx)) {
+					if (htx_is_empty_noerr(htx)) {
 						/* Here htx_to_buf() will set buffer data to 0 because
 						 * the HTX is empty, and allow us to do an xfer.
 						 */
@@ -620,11 +620,6 @@ void httpclient_applet_io_handler(struct appctx *appctx)
 						if (!htx_xfer(htx, hc_htx, htx_used_space(hc_htx), HTX_XFER_DEFAULT)) {
 							applet_have_more_data(appctx);
 							goto out;
-						}
-
-						/* we must copy the EOM if we empty the buffer */
-						if (htx_is_empty(hc_htx)) {
-							htx->flags |= (hc_htx->flags & HTX_FL_EOM);
 						}
 						htx_to_buf(htx, outbuf);
 						htx_to_buf(hc_htx, &hc->req.buf);

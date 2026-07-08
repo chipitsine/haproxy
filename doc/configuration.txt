@@ -3,7 +3,7 @@
                           Configuration Manual
                          ----------------------
                               version 3.5
-                              2026/06/25
+                              2026/07/08
 
 
 This document covers the configuration language as implemented in the version
@@ -970,9 +970,9 @@ HAProxy is launched in master-worker mode.
     and it may as well condition some worker process parameters (see examples
     from section 2.4 "Conditional blocks").
 
-In standalone mode (without "-W" option nor the "master-worker" keyword) the
-process behaves like a worker, except for variables "HAPROXY_MASTER_CLI" and
-"HAPROXY_MWORKER" which are not defined.
+In standalone mode (without "-W" option) the process behaves like a worker,
+except for variables "HAPROXY_MASTER_CLI" and "HAPROXY_MWORKER" which are not
+defined.
 
 Some variables are marked as not usable and not modifiable:
 
@@ -1255,8 +1255,6 @@ Example:
    # 2.3. Environment variables). Its presence enables an additional listener.
 
    global
-     master-worker
-
    .if defined(HAPROXY_MWORKER)
        listen mwcli_px
           bind :1111
@@ -1269,8 +1267,6 @@ Example:
    # mworker-max-reloads parameter.
 
    global
-     master-worker
-
    .if streq("$HAPROXY_BRANCH",3.1)
         mworker-max-reloads 5
    .endif
@@ -1955,10 +1951,6 @@ The following keywords are supported in the "global" section :
    - tune.quic.be.stream.rxbuf
    - tune.quic.be.tx.pacing
    - tune.quic.be.tx.udp-gso
-   - tune.quic.cc.cubic.min-losses (deprecated)
-   - tune.quic.cc-hystart (deprecated)
-   - tune.quic.disable-tx-pacing (deprecated)
-   - tune.quic.disable-udp-gso (deprecated)
    - tune.quic.fe.cc.cubic-min-losses
    - tune.quic.fe.cc.hystart
    - tune.quic.fe.cc.max-frame-loss
@@ -1974,18 +1966,8 @@ The following keywords are supported in the "global" section :
    - tune.quic.fe.stream.rxbuf
    - tune.quic.fe.tx.pacing
    - tune.quic.fe.tx.udp-gso
-   - tune.quic.frontend.max-data-size (deprecated)
-   - tune.quic.frontend.max-idle-timeout (deprecated)
-   - tune.quic.frontend.max-streams-bidi (deprecated)
-   - tune.quic.frontend.max-tx-mem (deprecated)
-   - tune.quic.frontend.stream-data-ratio (deprecated)
-   - tune.quic.frontend.default-max-window-size (deprecated)
    - tune.quic.listen
-   - tune.quic.max-frame-loss (deprecated)
    - tune.quic.mem.tx-max
-   - tune.quic.reorder-ratio (deprecated)
-   - tune.quic.retry-threshold (deprecated)
-   - tune.quic.socket-owner (deprecated)
    - tune.quic.zero-copy-fwd-send
    - tune.renice.runtime
    - tune.renice.startup
@@ -3050,32 +3032,6 @@ lua-prepend-path <string> [<type>]
   See https://www.lua.org/pil/8.1.html for the details within the Lua
   documentation.
 
-master-worker (deprecated)
-  Master-worker mode. It is equivalent to the command line "-W" argument.
-
-  This keyword is deprecated, please start in master-worker mode using "-W" or
-  "-Ws".
-
-  This mode will launch a "master" which will fork a "worker" after reading the
-  configuration to process the traffic. The master is used as a process manager
-  which will monitor the "workers".
-
-  Using this mode, you can reload HAProxy directly by sending a SIGUSR2 signal
-  to the master. Reloading will ask the master to read the configuration again
-  and fork a new worker. The previous worker will be kept until the end of its
-  jobs.
-
-  The master-worker mode is compatible either with the foreground or daemon
-  mode.
-
-  By default, if a worker exits with a bad return code, in the case of a
-  segfault for example, all workers will be killed, and the master will leave.
-  It is convenient to combine this behavior with Restart=on-failure in a
-  systemd unit file in order to relaunch the whole process. If you don't want
-  this behavior, you must use the keyword "no-exit-on-failure".
-
-  See also "-W" in the management guide.
-
 master-worker no-exit-on-failure
   In master-worker mode, by default, if a worker exits with a bad return code,
   in the case of a segfault for example, all workers will be killed, and the
@@ -3171,7 +3127,7 @@ pidfile <pidfile>
   Writes PIDs of all daemons into file <pidfile> when daemon mode or writes PID
   of master process into file <pidfile> when master-worker mode. This option is
   equivalent to the "-p" command line argument. The file must be accessible to
-  the user starting the process. See also "daemon" and "master-worker".
+  the user starting the process. See also "daemon".
 
 pp2-never-send-local
   A bug in the PROXY protocol v2 implementation was present in HAProxy up to
@@ -5142,21 +5098,11 @@ tune.quic.fe.cc.cubic-min-losses <number>
   compare some metrics. Never go beyond 2 without an expert's prior analysis of
   the situation. The default and minimum value is 1. Always use 1.
 
-tune.quic.cc.cubic.min-losses <number> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
-
 tune.quic.be.cc.hystart { on | off }
 tune.quic.fe.cc.hystart { on | off }
   Enables ('on') or disabled ('off') the HyStart++ (RFC 9406) algorithm for
   QUIC connections used as a replacement for the slow start phase of congestion
   control algorithms which may cause high packet loss. It is disabled by default.
-
-tune.quic.cc-hystart { on | off } (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
 
 tune.quic.be.cc.max-frame-loss <number>
 tune.quic.fe.cc.max-frame-loss <number>
@@ -5164,11 +5110,6 @@ tune.quic.fe.cc.max-frame-loss <number>
   exceeded, the connection is considered as failing and is closed immediately.
 
   The default value is 10.
-
-tune.quic.max-frame-loss <number> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
 
 tune.quic.be.cc.max-win-size <size>
 tune.quic.fe.cc.max-win-size <size>
@@ -5185,22 +5126,12 @@ tune.quic.fe.cc.max-win-size <size>
 
   See also the "quic-cc-algo" bind and server options.
 
-tune.quic.frontend.default-max-window-size <size> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
-
 tune.quic.be.cc.reorder-ratio <0..100, in percent>
 tune.quic.fe.cc.reorder-ratio <0..100, in percent>
   The ratio applied to the packet reordering threshold calculated. It may
   trigger a high packet loss detection when too small.
 
   The default value is 50.
-
-tune.quic.reorder-ratio <0..100, in percent> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
 
 tune.quic.be.max-idle-timeout <timeout>
 tune.quic.fe.max-idle-timeout <timeout>
@@ -5214,11 +5145,6 @@ tune.quic.fe.max-idle-timeout <timeout>
     - if both parameters are null, this feature is disabled.
 
   The default value is 30s.
-
-tune.quic.frontend.max-idle-timeout <timeout> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
 
 tune.quic.be.sec.glitches-threshold <number>
 tune.quic.fe.sec.glitches-threshold <number>
@@ -5235,11 +5161,6 @@ tune.quic.fe.sec.glitches-threshold <number>
 
   See also: fc_glitches, tune.glitches.kill.cpu-usage
 
-tune.quic.frontend.glitches-threshold <number> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
-
 tune.quic.fe.sec.retry-threshold <number>
   Dynamically enables the Retry feature for all the configured QUIC listeners
   as soon as this number of half open connections is reached. A half open
@@ -5253,11 +5174,6 @@ tune.quic.fe.sec.retry-threshold <number>
 
   See https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1.2 for more
   information about QUIC retry.
-
-tune.quic.retry-threshold <number> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
 
 tune.quic.fe.sock-per-conn { default-on | force-off }
   Specifies globally how QUIC frontend connections will use socket for
@@ -5288,12 +5204,6 @@ tune.quic.fe.sock-per-conn { default-on | force-off }
   "force-off" is used globally, it will be applied on every listener instance,
   regardless of their individual configuration.
 
-tune.quic.socket-owner { connection | listener } (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. The newer
-  option is named "tune.quic.fe.sock-per-conn", with legacy value "connection"
-  corresponding to "default-on" and "listener" to "force-off".
-
 tune.quic.be.stream.data-ratio <0..100, in percent>
 tune.quic.fe.stream.data-ratio <0..100, in percent>
   This setting allows to configure the hard limit of the number of data bytes
@@ -5313,11 +5223,6 @@ tune.quic.fe.stream.data-ratio <0..100, in percent>
   See also: "tune.quic.be.stream.rxbuf", "tune.quic.fe.stream.rxbuf",
             "tune.quic.be.stream.max-concurrent",
             "tune.quic.fe.stream.max-concurrent"
-
-tune.quic.frontend.stream-data-ratio  <0..100, in percent> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
 
 tune.quic.be.stream.max-concurrent <number>
 tune.quic.fe.stream.max-concurrent <number>
@@ -5362,11 +5267,6 @@ tune.quic.fe.stream.max-total <number>
   The default value is 0 which implies no specific limit outside of the QUIC
   protocol encoding limitation (2^60, more than a billion billion).
 
-tune.quic.frontend.max-streams-bidi <number> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
-
 tune.quic.be.stream.rxbuf <size>
 tune.quic.fe.stream.rxbuf <size>
   This setting is the hard limit for the number of data bytes in flight over a
@@ -5384,11 +5284,6 @@ tune.quic.fe.stream.rxbuf <size>
             "tune.quic.fe.stream.max-concurrent",
             "tune.quic.be.stream.data-ratio", "tune.quic.fe.stream.data-ratio"
 
-tune.quic.frontend.max-data-size <size> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
-
 tune.quic.be.tx.pacing { on | off }
 tune.quic.fe.tx.pacing { on | off }
   Enables ('on') or disables ('off') pacing support for QUIC emission. By
@@ -5400,11 +5295,6 @@ tune.quic.fe.tx.pacing { on | off }
 
   See also the "quic-cc-algo" bind and server options.
 
-tune.quic.disable-tx-pacing (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
-
 tune.quic.be.tx.udp-gso { on | off }
 tune.quic.fe.tx.udp-gso { on | off }
   Enables ('on') or disables ('off') UDP GSO support for QUIC emission. By
@@ -5412,11 +5302,6 @@ tune.quic.fe.tx.udp-gso { on | off }
   via a single system call which is more efficient for large transfer. It may
   be useful to disable it on developers suggestion when suspecting an issue on
   emission.
-
-tune.quic.disable-udp-gso (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
 
 tune.quic.listen { on | off }
   Disable QUIC transport protocol on the frontend side. All the QUIC listeners
@@ -5436,11 +5321,6 @@ tune.quic.mem.tx-max <size>
   strictly enforced so it can be exceeded on some occasions. Also, each
   connection will always be able to use a window of at least 2 datagrams, so a
   proper maxconn should be used in conjunction.
-
-tune.quic.frontend.max-tx-mem <size> (deprecated)
-  This keyword has been deprecated in 3.3 and will be removed in 3.5. It is
-  part of the streamlining process apply on QUIC configuration. If used, this
-  setting will only be applied on frontend connections.
 
 tune.quic.zero-copy-fwd-send { on | off }
   Enables ('on') of disabled ('off') the zero-copy sends of data for the QUIC
@@ -16681,7 +16561,11 @@ set-retries <int> | <epxr>
 
   Note that this action is only relevant on the backend side and thus this rule
   is only available for the proxies with backend capability. It is also not
-  allowed in "defaults" sections.
+  allowed in "defaults" sections. When the action is used for a listener, it is
+  evaluated in the frontend context. So retries value is conserved only if
+  stream is not routed to a different backend, via a use-backend rule for
+  instance. Otherwise the default retries value of the selected backend will be
+  preset.
 
   Example:
     tcp-request content set-retries 3
@@ -16769,7 +16653,11 @@ set-timeout { client | connect | queue | server | tarpit | tunnel } { <timeout> 
   the backend side and thus this rule is only available for the proxies with
   backend capabilities. Likewise, client timeout is only relevant for frontend
   side. Tarpit timeout is available to both sides. The timeout value must be
-  non-null to obtain the expected results.
+  non-null to obtain the expected results. When the action is used for a
+  listener, it is evaluated in the frontend context. So custom values for
+  backend-side timeouts are conserved only if stream is not routed to a
+  different backend, via a use-backend rule for instance. Otherwise the default
+  values of the selected backend will be preset.
 
   Example:
     http-request set-timeout tunnel 5s
@@ -24407,6 +24295,7 @@ bc_srv_queue                                       integer
 be_id                                              integer
 be_name                                            string
 be_connect_timeout                                 integer
+be_max_retries                                     integer
 be_queue_timeout                                   integer
 be_server_timeout                                  integer
 be_tarpit_timeout                                  integer
@@ -24415,6 +24304,7 @@ bytes_in                                           integer
 bytes_out                                          integer
 cur_connect_timeout                                integer
 cur_client_timeout                                 integer
+cur_max_retries                                    integer
 cur_queue_timeout                                  integer
 cur_server_timeout                                 integer
 cur_tarpit_timeout                                 integer
@@ -24751,6 +24641,11 @@ be_connect_timeout : integer
   current backend. This timeout can be overwritten by a "set-timeout" rule. See
   also the "cur_connect_timeout".
 
+be_max_retries : integer
+  Returns the configuration value for the connection retries of the current
+  backend. This value can be overwritten by a "set-retries" rule. See also the
+  "cur_max_retries".
+
 be_name : string
   Returns a string containing the current backend's name. It can be used in
   frontends with responses to check which backend processed the request. If
@@ -24793,6 +24688,11 @@ cur_client_timeout : integer
   Returns the currently applied client timeout in millisecond for the stream.
   In the default case, this will be equal to fe_client_timeout unless a
   "set-timeout" rule has been applied. See also "fe_client_timeout".
+
+cur_max_retries : integer
+  Returns the currently applied connect retries for the stream.
+  In the default case, this will be equal to be_max_retries unless a
+  "set-retries" rule has been applied. See also "be_max_retries".
 
 cur_queue_timeout : integer
   Returns the currently applied queue timeout in millisecond for the stream.

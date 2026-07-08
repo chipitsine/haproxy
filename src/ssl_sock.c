@@ -3111,7 +3111,7 @@ static int ssl_sock_put_ckch_into_ctx(const char *path, struct ckch_store *store
 		else
 			memprintf(err, "%s '%s' has an OCSP auto-update set to 'on' but an error occurred (maybe the OCSP URI or the issuer could not be found)'.\n",
 				  err && *err ? *err : "", path);
-		errcode |= ERR_ALERT | ERR_FATAL;
+		errcode |= ERR_WARN;
 		goto end;
 	}
 #endif
@@ -6037,7 +6037,7 @@ void ssl_sock_handle_hs_error(struct connection *conn)
  */
 static int ssl_sock_handshake(struct connection *conn, unsigned int flag)
 {
-	struct ssl_sock_ctx *ctx = conn_get_ssl_sock_ctx(conn);
+	struct ssl_sock_ctx *ctx;
 	int ret;
 	struct ssl_counters *counters = NULL;
 	struct ssl_counters *counters_px = NULL;
@@ -6049,6 +6049,7 @@ static int ssl_sock_handshake(struct connection *conn, unsigned int flag)
 	if (!conn_ctrl_ready(conn))
 		return 0;
 
+	ctx = conn_get_ssl_sock_ctx(conn);
 	if (!ctx)
 		goto out_error;
 

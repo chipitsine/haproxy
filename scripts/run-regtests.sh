@@ -45,13 +45,6 @@ _help()
 
     #EXCLUDE_TARGETS=dos,freebsd,windows
 
-    # Below option is required to complete this test successfully
-    #REQUIRE_OPTION=OPENSSL, this test needs OPENSSL compiled in.
-    #REQUIRE_OPTIONS=ZLIB|SLZ,OPENSSL,LUA
-
-    #REQUIRE_SERVICE=prometheus-exporter
-    #REQUIRE_SERVICES=prometheus-exporter,foo
-
   Configure environment variables to set the haproxy and vtest binaries to use
     setenv HAPROXY_PROGRAM /usr/local/sbin/haproxy
     setenv VTEST_PROGRAM /usr/local/bin/vtest
@@ -62,45 +55,6 @@ _help()
     export HAPROXY_ARGS="-dM -de -m 50"
 EOF
   exit 0
-}
-
-add_range_to_test_list()
-{
-    level0="*.vtc"
-    level1="h*.vtc"
-    level2="s*.vtc"
-    level3="l*.vtc"
-    level4="b*.vtc"
-    level5="k*.vtc"
-    level6="e*.vtc"
-
-    new_range=$(echo $1 | tr '-' ' ')
-    non_digit=$(echo $new_range | grep '[^0-9 ]')
-    if [ -n "$non_digit" ] ; then
-        return
-    fi
-    if [ "$new_range" = "$1" ] ; then
-        if [ $1 -gt 6 ] ; then
-            return
-        fi
-        eval echo '$'level$1
-        return
-    fi
-    if [ -z "$new_range" ] ; then
-        return
-    fi
-    list=
-    for l in $(seq $new_range) ; do
-        if [ -n "l" ] ; then
-            if [ -z "$list" ] ; then
-                list="$(eval echo '$'level${l})"
-            else
-                list="$list $(eval echo '$'level${l})"
-            fi
-        fi
-    done
-
-    echo $list
 }
 
 _startswith() {
@@ -120,19 +74,13 @@ _findtests() {
     set -- $(grep '^#[0-9A-Z_]*=' "$i")
     IFS="$OLDIFS"
 
-    require_options="";
-    require_services=""; exclude_targets=""; regtest_type=""
-    requiredoption=""; requiredservice=""; excludedtarget="";
+    exclude_targets=""; regtest_type=""; excludedtarget=""
 
     while [ $# -gt 0 ]; do
       v="$1"; v="${v#*=}"
       case "$1" in
-        "#REQUIRE_OPTIONS="*)       require_options="$v" ;;
-        "#REQUIRE_SERVICES="*)      require_services="$v" ;;
         "#EXCLUDE_TARGETS="*)       exclude_targets="$v" ;;
         "#REGTEST_TYPE="*)          regtest_type="$v" ;;
-        "#REQUIRE_OPTION="*)        requiredoption="${v%,*}" ;;
-        "#REQUIRE_SERVICE="*)       required_service="${v%,*}" ;;
         "#EXCLUDE_TARGET="*)        excludedtarget="${v%,*}" ;;
         # Note: any new variable declared here must be initialized above.
       esac
@@ -149,53 +97,15 @@ _findtests() {
         fi
     fi
 
-    if [ -n "$requiredoption" ]; then
-      require_options="$require_options,$requiredoption"
-    fi
-
-    if [ -n "$requiredservice" ]; then
-      require_services="$require_services,$requiredservice"
-    fi
-
     if [ -n "$excludedtarget" ]; then
       exclude_targets="$exclude_targets,$excludedtarget"
     fi
 
-    IFS=","; set -- $require_options;  IFS=$OLDIFS; require_options="$*"
-    IFS=","; set -- $require_services; IFS=$OLDIFS; require_services="$*"
     IFS=","; set -- $exclude_targets;  IFS=$OLDIFS; exclude_targets="$*"
 
     for excludedtarget in $exclude_targets; do
       if [ "$excludedtarget" = "$TARGET" ]; then
         echo "  Skipped $i because haproxy is compiled for the excluded target $TARGET" >> "${TESTDIR}/skipped.log"
-        skiptest=1
-      fi
-    done
-
-    for requiredoption in $require_options; do
-      IFS="|"; set -- $requiredoption;  IFS=$OLDIFS; alternatives="$*"
-      found=
-      for alt in $alternatives; do
-        if [ -z "${FEATURES_PATTERN##* +$alt *}" ]; then
-          found=1;
-	fi
-      done
-      if [ -z $found ]; then
-        echo "  Skipped $i because haproxy is not compiled with the required option $requiredoption"  >> "${TESTDIR}/skipped.log"
-        skiptest=1
-      fi
-    done
-
-    for requiredservice in $require_services; do
-      IFS="|"; set -- $requiredservice;  IFS=$OLDIFS; alternatives="$*"
-      found=
-      for alt in $alternatives; do
-        if [ -z "${SERVICES_PATTERN##* $alt *}" ]; then
-          found=1;
-	fi
-      done
-      if [ -z $found ]; then
-        echo "  Skipped $i because haproxy is not compiled with the required service $requiredservice"  >> "${TESTDIR}/skipped.log"
         skiptest=1
       fi
     done
@@ -280,15 +190,6 @@ _process() {
   done
 }
 
-# compute a version from up to 4 sub-version components, each multiplied
-# by a power of 1000, and padded left with 0, 1 or 2 zeroes.
-_version() {
-  OLDIFS="$IFS"; IFS="."; set -- $*; IFS="$OLDIFS"
-  set -- ${1%%[!0-9]*} 000${2%%[!0-9]*} 000${3%%[!0-9]*} 000${4%%[!0-9]*}
-  prf2=${2%???}; prf3=${3%???}; prf4=${4%???}
-  echo ${1}${2#$prf2}${3#$prf3}${4#$prf4}
-}
-
 
 HAPROXY_PROGRAM="${HAPROXY_PROGRAM:-${PWD}/haproxy}"
 HAPROXY_ARGS="${HAPROXY_ARGS--dM -dI -dW}"
@@ -323,8 +224,8 @@ if [ $preparefailed ]; then
   exit 1
 fi
 
-{ read HAPROXY_VERSION; read TARGET; read FEATURES; read SERVICES; } << EOF
-$($HAPROXY_PROGRAM $HAPROXY_ARGS -vv | grep -E 'HA-?Proxy version|TARGET.*=|^Feature|^Available services' | sed 's/.* [:=] //')
+{ read HAPROXY_VERSION; read TARGET; } << EOF
+$($HAPROXY_PROGRAM $HAPROXY_ARGS -vv | grep -E 'HA-?Proxy version|TARGET.*=' | sed 's/.* [:=] //')
 EOF
 
 HAPROXY_VERSION=$(echo $HAPROXY_VERSION | cut -d " " -f 3)
@@ -335,9 +236,6 @@ if [ -z "${PROJECT_VERSION}${MAKE}" ]; then
         # try again with gmake, just in case
         PROJECT_VERSION=$(gmake version 2>&1 | grep -E '^VERSION:|^SUBVERS:'|cut -f2 -d' '|tr -d '\012')
 fi
-
-FEATURES_PATTERN=" $FEATURES "
-SERVICES_PATTERN=" $SERVICES "
 
 TESTRUNDATETIME="$(date '+%Y-%m-%d_%H-%M-%S')"
 
@@ -351,8 +249,6 @@ if [ -n "$HAPROXY_ARGS" ]; then
 fi
 
 echo "Target : $TARGET"
-echo "Options : $FEATURES"
-echo "Services : $SERVICES"
 
 echo "########################## Gathering tests to run ##########################"
 

@@ -71,6 +71,8 @@ unsigned stream_epoch = 0;
 static struct list service_keywords = LIST_HEAD_INIT(service_keywords);
 
 
+#if defined(USE_TRACE)
+
 /* trace source and events */
 static void strm_trace(enum trace_level level, uint64_t mask,
 		       const struct trace_source *src,
@@ -272,6 +274,7 @@ static void strm_trace(enum trace_level level, uint64_t mask, const struct trace
 		htx_dump(&trace_buf, htx, full);
 	}
 }
+#endif
 
 /* Upgrade an existing stream for stream connector <sc>. Return < 0 on error. This
  * is only valid right after a TCP to H1 upgrade. The stream should be
@@ -433,7 +436,7 @@ void *stream_new(struct session *sess, struct stconn *sc, struct buffer *input)
 	s->task = t;
 	s->pending_events = s->new_events = STRM_EVT_NONE;
 	s->conn_retries = 0;
-	s->max_retries = 0;
+	s->max_retries = ((sess->fe->cap & PR_CAP_BE) ? sess->fe->conn_retries : 0);
 	s->conn_exp = TICK_ETERNITY;
 	s->conn_err_type = STRM_ET_NONE;
 	s->prev_conn_state = SC_ST_INI;
@@ -1258,19 +1261,27 @@ static int process_switching_rules(struct stream *s, struct channel *req, int an
 			goto sw_failed;
 	}
 
-	/* Se the max connection retries for the stream. may be overwritten later */
-	s->max_retries = s->be->conn_retries;
-
-	/* Set the queue and connect timeouts. May be overwritten later */
-	s->connect_timeout = s->be->timeout.connect;
-	s->queue_timeout = s->be->timeout.queue;
-
-	/* we don't want to run the TCP or HTTP filters again if the backend has not changed */
 	if (fe == s->be) {
+		/* we don't want to run the TCP or HTTP filters again if the backend has not changed */
 		s->req.analysers &= ~AN_REQ_INSPECT_BE;
 		s->req.analysers &= ~AN_REQ_HTTP_PROCESS_BE;
 		s->req.analysers &= ~AN_REQ_FLT_START_BE;
 	}
+	else {
+		/* Set the max connection retries for the stream. may be overwritten later */
+		s->max_retries = s->be->conn_retries;
+		s->scb->ioto = TICK_ETERNITY;
+		s->connect_timeout = TICK_ETERNITY;
+		s->queue_timeout = TICK_ETERNITY;
+		s->tunnel_timeout = TICK_ETERNITY;
+	}
+
+
+	/* Set the queue and connect timeouts if not set. May be overwritten later if backend has changed */
+	if (!tick_isset(s->connect_timeout))
+		s->connect_timeout = s->be->timeout.connect;
+	if (!tick_isset(s->queue_timeout))
+		s->queue_timeout = s->be->timeout.queue;
 
 	/* as soon as we know the backend, we must check if we have a matching forced or ignored
 	 * persistence rule, and report that in the stream.
@@ -4409,6 +4420,17 @@ static struct action_kw_list stream_http_after_res_actions =  { ILH, {
 
 INITCALL1(STG_REGISTER, http_after_res_keywords_register, &stream_http_after_res_actions);
 
+static int smp_fetch_cur_max_retries(const struct arg *args, struct sample *smp, const char *km, void *private)
+{
+	smp->flags = SMP_F_VOL_TXN;
+	smp->data.type = SMP_T_SINT;
+	if (!smp->strm)
+		return 0;
+
+	smp->data.u.sint = smp->strm->max_retries;
+	return 1;
+}
+
 static int smp_fetch_cur_connect_timeout(const struct arg *args, struct sample *smp, const char *km, void *private)
 {
 	smp->flags = SMP_F_VOL_TXN;
@@ -4676,6 +4698,7 @@ static int smp_fetch_redispatched(const struct arg *args, struct sample *smp, co
 static struct sample_fetch_kw_list smp_kws = {ILH, {
 	{ "cur_connect_timeout",smp_fetch_cur_connect_timeout,0, NULL, SMP_T_SINT, SMP_USE_BKEND, },
 	{ "cur_client_timeout", smp_fetch_cur_client_timeout, 0, NULL, SMP_T_SINT, SMP_USE_FTEND, },
+	{ "cur_max_retries",    smp_fetch_cur_max_retries,    0, NULL, SMP_T_SINT, SMP_USE_BKEND, },
 	{ "cur_server_timeout", smp_fetch_cur_server_timeout, 0, NULL, SMP_T_SINT, SMP_USE_BKEND, },
 	{ "cur_queue_timeout",  smp_fetch_cur_queue_timeout,  0, NULL, SMP_T_SINT, SMP_USE_BKEND, },
 	{ "cur_tarpit_timeout", smp_fetch_cur_tarpit_timeout, 0, NULL, SMP_T_SINT, SMP_USE_FTEND | SMP_USE_BKEND, },

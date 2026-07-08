@@ -198,7 +198,8 @@ struct qcs {
 	struct wait_event wait_event;
 	struct wait_event *subs;
 
-	uint64_t err; /* error code to transmit via RESET_STREAM */
+	uint64_t rs_err; /* error code to transmit via RESET_STREAM */
+	uint64_t ss_err; /* error code to transmit via STOP_SENDING */
 
 	int start; /* base timestamp for http-request timeout */
 
@@ -219,6 +220,7 @@ enum qcc_app_ops_lclose_mode {
 	QCC_APP_OPS_LCLO_MODE_NORMAL,
 	QCC_APP_OPS_LCLO_MODE_ABORT,
 	QCC_APP_OPS_LCLO_MODE_KILL_CONN,
+	QCC_APP_OPS_LCLO_MODE_READ,
 };
 
 /* QUIC application layer operations */

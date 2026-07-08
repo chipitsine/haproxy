@@ -374,6 +374,8 @@ static inline void htx_change_blk_value_len(struct htx *htx, struct htx_blk *blk
 
 	/* Update HTTP message */
 	delta = (newlen - oldlen);
+	if (type < HTX_BLK_EOH)
+		htx->hdrs_data += delta;
 	htx->data += delta;
 	if (blk->addr+sz == htx->tail_addr)
 		htx->tail_addr += delta;
@@ -687,7 +689,7 @@ static inline int htx_almost_full(const struct htx *htx)
 static inline void htx_reset(struct htx *htx)
 {
 	htx->tail = htx->head  = htx->first = -1;
-	htx->data = 0;
+	htx->data = htx->hdrs_data = 0;
 	htx->tail_addr = htx->head_addr = htx->end_addr = 0;
 	htx->flags = HTX_FL_NONE;
 }
@@ -774,6 +776,14 @@ static inline int htx_is_empty(const struct htx *htx)
 static inline int htx_is_not_empty(const struct htx *htx)
 {
 	return (htx->head != -1);
+}
+
+/* Return 1 if the message is empty and there is no parsing/internal error flag
+ * set. Otherwise it return 0.
+ */
+static inline int htx_is_empty_noerr(const struct htx *htx)
+{
+	return (htx_is_empty(htx) && !(htx->flags & (HTX_FL_PARSING_ERROR|HTX_FL_PROCESSING_ERROR)));
 }
 
 /* Returns 1 if no more data are expected for the message <htx>. Otherwise it
@@ -863,9 +873,9 @@ static inline void htx_dump(struct buffer *chunk, const struct htx *htx, int ful
 {
 	int32_t pos;
 
-	chunk_appendf(chunk, " htx=%p(size=%u,data=%u,used=%u,wrap=%s,flags=0x%08x,"
+	chunk_appendf(chunk, " htx=%p(size=%u,data=%u,hdrs=%u,used=%u,wrap=%s,flags=0x%08x,"
 		      "first=%d,head=%d,tail=%d,tail_addr=%d,head_addr=%d,end_addr=%d)",
-		      htx, htx->size, htx->data, htx_nbblks(htx), (!htx->head_addr) ? "NO" : "YES",
+		      htx, htx->size, htx->data, htx->hdrs_data, htx_nbblks(htx), (!htx->head_addr) ? "NO" : "YES",
 		      htx->flags, htx->first, htx->head, htx->tail,
 		      htx->tail_addr, htx->head_addr, htx->end_addr);
 

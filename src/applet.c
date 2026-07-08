@@ -31,16 +31,10 @@ unsigned int nb_applets = 0;
 
 DECLARE_TYPED_POOL(pool_head_appctx,  "appctx",  struct appctx);
 
-/* trace source and events */
-static void applet_trace(enum trace_level level, uint64_t mask,
-			 const struct trace_source *src,
-			 const struct ist where, const struct ist func,
-			 const void *a1, const void *a2, const void *a3, const void *a4);
-
 /* The event representation is split like this :
  *   app  - applet
   */
-static const struct trace_event applet_trace_events[] = {
+static const struct trace_event applet_trace_events[] __maybe_unused = {
 #define           APPLET_EV_NEW       (1ULL <<  0)
 	{ .mask = APPLET_EV_NEW,      .name = "app_new",      .desc = "new appctx" },
 #define           APPLET_EV_FREE      (1ULL <<  1)
@@ -63,6 +57,14 @@ static const struct trace_event applet_trace_events[] = {
 	{ .mask = APPLET_EV_START,    .name = "app_wake",    .desc = "appctx woken up" },
 	{}
 };
+
+#if defined(USE_TRACE)
+
+/* trace source and events */
+static void applet_trace(enum trace_level level, uint64_t mask,
+			 const struct trace_source *src,
+			 const struct ist where, const struct ist func,
+			 const void *a1, const void *a2, const void *a3, const void *a4);
 
 static const struct name_desc applet_trace_lockon_args[4] = {
 	/* arg1 */ { /* already used by the applet */ },
@@ -215,6 +217,8 @@ static void applet_trace(enum trace_level level, uint64_t mask, const struct tra
 		}
 	}
 }
+
+#endif /* USE_TRACE */
 
 /* Tries to allocate a new appctx and initialize all of its fields. The appctx
  * is returned on success, NULL on failure. The appctx must be released using
@@ -497,14 +501,14 @@ size_t appctx_htx_rcv_buf(struct appctx *appctx, struct buffer *buf, size_t coun
 	struct htx *buf_htx = NULL;
 	size_t ret = 0;
 
-	if (htx_is_empty(appctx_htx)) {
+	if (htx_is_empty_noerr(appctx_htx)) {
 		htx_to_buf(appctx_htx, &appctx->outbuf);
 		goto out;
 	}
 
 	ret = appctx_htx->data;
 	buf_htx = htx_from_buf(buf);
-	if (b_size(&appctx->outbuf) == b_size(buf) && htx_is_empty(buf_htx) && htx_used_space(appctx_htx) <= count) {
+	if (b_size(&appctx->outbuf) == b_size(buf) && htx_is_empty_noerr(buf_htx) && htx_used_space(appctx_htx) <= count) {
 		htx_to_buf(buf_htx, buf);
 		htx_to_buf(appctx_htx, &appctx->outbuf);
 		b_xfer(buf, &appctx->outbuf, b_data(&appctx->outbuf));
@@ -512,10 +516,6 @@ size_t appctx_htx_rcv_buf(struct appctx *appctx, struct buffer *buf, size_t coun
 	}
 
 	htx_xfer(buf_htx, appctx_htx, count, HTX_XFER_DEFAULT);
-	buf_htx->flags |= (appctx_htx->flags & (HTX_FL_PARSING_ERROR|HTX_FL_PROCESSING_ERROR));
-	if (htx_is_empty(appctx_htx)) {
-		buf_htx->flags |= (appctx_htx->flags & HTX_FL_EOM);
-	}
 	htx_to_buf(buf_htx, buf);
 	htx_to_buf(appctx_htx, &appctx->outbuf);
 	ret -= appctx_htx->data;
@@ -599,7 +599,7 @@ size_t appctx_htx_snd_buf(struct appctx *appctx, struct buffer *buf, size_t coun
 	size_t ret = 0;
 
 	ret = buf_htx->data;
-	if (htx_is_empty(appctx_htx) && buf_htx->data == count) {
+	if (htx_is_empty_noerr(appctx_htx) && buf_htx->data == count) {
 		htx_to_buf(appctx_htx, &appctx->inbuf);
 		htx_to_buf(buf_htx, buf);
 		b_xfer(&appctx->inbuf, buf, b_data(buf));
@@ -607,10 +607,6 @@ size_t appctx_htx_snd_buf(struct appctx *appctx, struct buffer *buf, size_t coun
 	}
 
 	htx_xfer(appctx_htx, buf_htx, count, HTX_XFER_NO_METADATA);
-	if (htx_is_empty(buf_htx)) {
-		appctx_htx->flags |= (buf_htx->flags & HTX_FL_EOM);
-	}
-
 	htx_to_buf(appctx_htx, &appctx->inbuf);
 	htx_to_buf(buf_htx, buf);
 	ret -= buf_htx->data;

@@ -477,7 +477,7 @@ static inline struct stconn *sc_new_from_hldstream(struct hldstream *hs, unsigne
  */
 static const char *human_number(double x)
 {
-	static char str[5];
+	static char str[8];
 	char unit = '.';
 
 	if (x < 0)
@@ -747,9 +747,27 @@ void update_throttle()
 /* main task */
 static struct task *mtask_cb(struct task *t, void *context, unsigned int state)
 {
+	static int header_printed;
+
 	TRACE_ENTER(HLD_EV_MAIN_TASK);
 
 	gettimeofday(&hld_now, NULL);
+
+	if (!header_printed) {
+		header_printed = 1;
+		if (arg_long >= 2)
+			printf("#_____time conns tot_conn  tot_req      tot_bytes"
+				   "    err thr cps rps Bps bps ttfb(us) ttlb(us)");
+		else if (arg_long)
+			printf("#     time conns tot_conn  tot_req      tot_bytes"
+				   "    err  cps  rps  Bps  bps   ttfb   ttlb");
+		else
+			printf("#     time conns tot_conn  tot_req      tot_bytes"
+				   "    err  cps  rps  bps   ttfb");
+		if (arg_hscd)
+			printf(" 1xx 2xx 3xx 4xx 5xx");
+		putchar('\n');
+	}
 
 	update_throttle();
 	if (tick_is_expired(mtask.show_time, now_ms)) {
@@ -1264,6 +1282,17 @@ struct task *hld_strm_task(struct task *t, void *context, unsigned int state)
 	LIST_DELETE(&hs->list);
 	hldstream_free(&hs);
 	t = NULL;
+
+	if (LIST_ISEMPTY(&usr->strms))
+		usr->task->expire = TICK_ETERNITY;
+	else {
+		/* Update the user task expiration from the first stream which
+		 * is also the stream with the oldest expiration time.
+		 */
+		first_hs = LIST_ELEM(usr->strms.n, struct hldstream *, list);
+		hs->usr->task->expire = first_hs->expire;
+		task_queue(hs->usr->task);
+	}
 
 	goto leave;
  err:
@@ -1797,19 +1826,6 @@ static int hld_init(void)
 		ha_alert("could start main task\n");
 		goto leave;
 	}
-
-	if (arg_long >= 2)
-		printf("#_____time conns tot_conn  tot_req      tot_bytes"
-		       "    err thr cps rps Bps bps ttfb(us) ttlb(us)");
-	else if (arg_long)
-		printf("#     time conns tot_conn  tot_req      tot_bytes"
-		       "    err  cps  rps  Bps  bps   ttfb   ttlb");
-	else
-		printf("#     time conns tot_conn  tot_req      tot_bytes"
-		       "    err  cps  rps  bps   ttfb");
-	if (arg_hscd)
-		printf(" 1xx 2xx 3xx 4xx 5xx");
-	putchar('\n');
 
 	mtask.t->process = mtask_cb;
 	mtask.t->state |= TASK_RT;

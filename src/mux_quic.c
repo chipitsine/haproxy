@@ -207,7 +207,7 @@ static struct qcs *qcs_new(struct qcc *qcc, uint64_t id, enum qcs_type type)
 	qcs->wait_event.events = 0;
 	qcs->subs = NULL;
 
-	qcs->err = 0;
+	qcs->rs_err = qcs->ss_err = 0;
 
 	/* Reset all timers and start base one. */
 	tot_time_reset(&qcs->timer.base);
@@ -238,7 +238,7 @@ static struct qcs *qcs_new(struct qcc *qcc, uint64_t id, enum qcs_type type)
 	 * accept or reject the new stream via its attach() operation.
 	 */
 	if (qcc->app_st >= QCC_APP_ST_SHUT && !qcc->app_ops->shutdown) {
-		qcc_abort_stream_read(qcs);
+		qcc_abort_stream_read(qcs, 0);
 		qcc_reset_stream(qcs, 0, 0);
 		goto out;
 	}
@@ -489,7 +489,8 @@ int qcs_is_completed(struct qcs *qcs)
 	 * detached and everything already sent.
 	 */
 	return (qcs->st == QC_SS_CLO && !qcs_sc(qcs)) ||
-	       (qcs_is_close_local(qcs) && (qcs->flags & QC_SF_DETACH));
+	       (qcs_is_close_local(qcs) && (qcs->flags & QC_SF_DETACH) &&
+	        !(qcs->flags & QC_SF_TO_STOP_SENDING));
 }
 
 /* Close the remote channel of <qcs> instance. */
@@ -1748,7 +1749,7 @@ void qcc_reset_stream(struct qcs *qcs, int err, int tevt)
 
 	TRACE_STATE("reset stream", QMUX_EV_QCS_END, qcc->conn, qcs);
 	qcs->flags |= QC_SF_TO_RESET;
-	qcs->err = err;
+	qcs->rs_err = err;
 
 	/* On BE side, a QCS may be resetted before any data emission. */
 	if (conn_is_back(qcs->qcc->conn))
@@ -1807,17 +1808,18 @@ void qcc_send_stream(struct qcs *qcs, int urg, int count)
 }
 
 /* Prepare for the emission of STOP_SENDING on <qcs>. */
-void qcc_abort_stream_read(struct qcs *qcs)
+void qcc_abort_stream_read(struct qcs *qcs, int err)
 {
 	struct qcc *qcc = qcs->qcc;
 
 	TRACE_ENTER(QMUX_EV_QCC_NEW, qcc->conn, qcs);
 
-	if ((qcs->flags & QC_SF_TO_STOP_SENDING) || qcs_is_close_remote(qcs))
+	if ((qcs->flags & QC_SF_READ_ABORTED) || qcs_is_close_remote(qcs))
 		goto end;
 
 	TRACE_STATE("abort stream read", QMUX_EV_QCS_END, qcc->conn, qcs);
 	qcs->flags |= (QC_SF_TO_STOP_SENDING|QC_SF_READ_ABORTED);
+	qcs->ss_err = err;
 
 	_qcc_send_stream(qcs, 1);
 	tasklet_wakeup(qcc->wait_event.tasklet);
@@ -2794,7 +2796,7 @@ static int qcs_send_reset(struct qcs *qcs)
 	}
 
 	frm->reset_stream.id = qcs->id;
-	frm->reset_stream.app_error_code = qcs->err;
+	frm->reset_stream.app_error_code = qcs->rs_err;
 	frm->reset_stream.final_size = qcs->tx.fc.off_real;
 
 	LIST_APPEND(&frms, &frm->list);
@@ -2846,7 +2848,7 @@ static int qcs_send_stop_sending(struct qcs *qcs)
 	}
 
 	frm->stop_sending.id = qcs->id;
-	frm->stop_sending.app_error_code = qcs->err;
+	frm->stop_sending.app_error_code = qcs->ss_err;
 
 	LIST_APPEND(&frms, &frm->list);
 	if (qcc_send_frames(qcs->qcc, &frms, 0)) {
@@ -3004,6 +3006,12 @@ static int qcc_emit_rs_ss(struct qcc *qcc)
 			if (!(qcs->flags & (QC_SF_FIN_STREAM|QC_SF_TO_RESET)) &&
 			    ((conn_is_quic(qcc->conn) && !qcs->tx.stream) || !qcs_prep_bytes(qcs))) {
 				LIST_DEL_INIT(&qcs->el_send);
+
+				if (qcs_is_completed(qcs)) {
+					TRACE_STATE("add stream in purg_list", QMUX_EV_QCC_SEND|QMUX_EV_QCS_SEND, qcc->conn, qcs);
+					LIST_DEL_INIT(&qcs->el_send);
+					LIST_APPEND(&qcc->purg_list, &qcs->el_send);
+				}
 				continue;
 			}
 		}
@@ -3635,8 +3643,10 @@ static void qcc_release(struct qcc *qcc)
 		}
 
 		/* register streams IDs so that quic-conn layer can ignore already closed streams. */
-		qc->rx.stream_max_uni = qcc->largest_uni_r;
-		qc->rx.stream_max_bidi = qcc->largest_bidi_r;
+		if (!conn_is_back(conn)) {
+			qc->rx.stream_max_uni = qcc->largest_uni_r;
+			qc->rx.stream_max_bidi = qcc->largest_bidi_r;
+		}
 	}
 
 	tasklet_free(qcc->wait_event.tasklet);
@@ -3659,7 +3669,7 @@ static void qcc_release(struct qcc *qcc)
 	if (qcc->app_ops) {
 		if (qcc->app_ops->release)
 			qcc->app_ops->release(qcc->ctx);
-		if (conn && conn_is_quic(conn) && conn->handle.qc)
+		if (conn && !conn_is_back(conn) && conn_is_quic(conn) && conn->handle.qc)
 			conn->handle.qc->strm_reject = qcc->app_ops->strm_reject;
 	}
 	TRACE_PROTO("application layer released", QMUX_EV_QCC_END, conn);
@@ -4239,15 +4249,16 @@ static void qcm_strm_detach(struct sedesc *sd)
 
 	qcc_rm_sc(qcc);
 
-	if (!qcs_is_close_local(qcs) &&
+	/* Prevent QCS free if there is remaining data to send. */
+	if ((!qcs_is_close_local(qcs) || (qcs->flags & QC_SF_TO_STOP_SENDING)) &&
 	    !(qcc->flags & (QC_CF_ERR_CONN|QC_CF_ERRL))) {
 		TRACE_STATE("remaining data, detaching qcs", QMUX_EV_STRM_END, conn, qcs);
 		qcs->flags |= QC_SF_DETACH;
 		qcc_refresh_timeout(qcc);
 
-		/* TODO on backend side if a QCS is detached, the connection may
-		 * not be reinserted in the correct server pool (idle or avail).
-		 */
+		/* TODO should detached QCS be ignored to consider conn as idle ? */
+		COUNT_IF_HOT(conn_is_back(conn),
+		             "QCS in detached state on BE side, may lower reuse rate");
 
 		TRACE_LEAVE(QMUX_EV_STRM_END, qcc->conn, qcs);
 		return;
@@ -4695,22 +4706,35 @@ static void qcm_strm_shut(struct stconn *sc, unsigned int mode, struct se_abort_
 {
 	struct qcs *qcs = __sc_mux_strm(sc);
 	struct qcc *qcc = qcs->qcc;
+	enum qcc_app_ops_lclose_mode lclo_mode;
 
 	if (!(mode & (SE_SHW_SILENT|SE_SHW_NORMAL)))
 		return;
 
 	TRACE_ENTER(QMUX_EV_STRM_SHUT, qcc->conn, qcs);
 
+	/* Not implemented. */
+	BUG_ON(mode & SE_SHR_DRAIN);
+
 	/* Early closure reported if QC_SF_FIN_STREAM not yet set. */
-	if (!qcs_is_close_local(qcs) &&
+	if ((mode & (SE_SHW_SILENT|SE_SHW_NORMAL)) &&
+	    !qcs_is_close_local(qcs) &&
 	    !(qcs->flags & (QC_SF_FIN_STREAM|QC_SF_TO_RESET))) {
+
 		if (qcs->flags & QC_SF_UNKNOWN_PL_LENGTH)
-			qcc->app_ops->lclose(qcs, QCC_APP_OPS_LCLO_MODE_NORMAL);
+			lclo_mode = QCC_APP_OPS_LCLO_MODE_NORMAL;
 		else if (se_fl_test(qcs->sd, SE_FL_KILL_CONN))
-			qcc->app_ops->lclose(qcs, QCC_APP_OPS_LCLO_MODE_KILL_CONN);
+			lclo_mode = QCC_APP_OPS_LCLO_MODE_KILL_CONN;
 		else
-			qcc->app_ops->lclose(qcs, QCC_APP_OPS_LCLO_MODE_ABORT);
+			lclo_mode = QCC_APP_OPS_LCLO_MODE_ABORT;
+
+		qcc->app_ops->lclose(qcs, lclo_mode);
 		tasklet_wakeup(qcc->wait_event.tasklet);
+	}
+
+	if ((mode & SE_SHR_RESET) &&
+	    !qcs_is_close_remote(qcs) && !(qcs->flags & (QC_SF_READ_ABORTED))) {
+		qcc->app_ops->lclose(qcs, QCC_APP_OPS_LCLO_MODE_READ);
 	}
 
  out:
@@ -4801,8 +4825,9 @@ static int qcm_strm_show_sd(struct buffer *msg, struct sedesc *sd, const char *p
 	if (!qcs)
 		return ret;
 
-	chunk_appendf(msg, " qcs=%p .flg=%#x .id=%llu .st=%s .ctx=%p, .err=%#llx",
-		      qcs, qcs->flags, (ull)qcs->id, qcs_st_to_str(qcs->st), qcs->ctx, (ull)qcs->err);
+	chunk_appendf(msg, " qcs=%p .flg=%#x .id=%llu .st=%s .ctx=%p, .err=%#llx/%#llx",
+		      qcs, qcs->flags, (ull)qcs->id, qcs_st_to_str(qcs->st), qcs->ctx,
+		      (ull)qcs->rs_err, (ull)qcs->ss_err);
 
 	if (pfx)
 		chunk_appendf(msg, "\n%s", pfx);
