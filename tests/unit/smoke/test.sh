@@ -13,11 +13,13 @@ run() {
 
 	#${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/basic-config-edge.cfg -c
 	${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/socks4.cfg -c
-	${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/games.cfg -c
+	${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/wurfl-example.cfg -c
+	
     ${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/traces.cfg -c 
 	${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/keylog-test.cfg -c
     ${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/mptcp.cfg -c
-    ${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/wurfl-example.cfg -c
+    
+	${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/games.cfg -c
 	
 }
 
