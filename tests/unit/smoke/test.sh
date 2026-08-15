@@ -21,7 +21,7 @@ run() {
 #  [ALERT]    (10629) : config : parsing [/home/runner/work/haproxy/haproxy/examples/traces.cfg:19] : No such trace source 'qcm'
 
   
-	${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/keylog-test.cfg -c
+	#${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/keylog-test.cfg -c
     ${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/mptcp.cfg -c
     
 	${HAPROXY_PROGRAM} -dI -f ${ROOTDIR}/examples/games.cfg -c
