@@ -1,3 +1,5 @@
 SUBVERS export-subst
 VERDATE export-subst
 *.[ch] diff=cpp
+
+*.http text eol=lf
