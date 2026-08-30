@@ -147,7 +147,19 @@ struct ist {
  * __builtin_strlen() with an expression otherwise it involves a real
  * measurement.
  */
-#if __GNUC__ >= 4
+#ifdef __COVERITY__
+/* Coverity does not understand the intentional size_t underflow/overflow
+ * trick in the regular implementation and reports false INTEGER_OVERFLOW
+ * warnings. Use a simple strlen() here to keep the Coverity analysis clean.
+ */
+#define ist(str) ({                                                    \
+	char *__x = (void *)(str);                                     \
+	(struct ist){                                                   \
+		.ptr = __x,                                            \
+		.len = __x ? strlen(__x) : 0,                         \
+	};                                                             \
+})
+#elif __GNUC__ >= 4
 // gcc >= 4 detects constant propagation of str through __x and resolves the
 // length of constant strings easily.
 #define ist(str) ({                                                    \
@@ -930,7 +942,7 @@ static inline int istissame(const struct ist ist1, const struct ist ist2)
 static inline struct ist istalloc(const size_t size)
 {
 	/* Note: do not use ist2 here, as it triggers a gcc11 warning.
-	 * €˜<unknown>€™ may be used uninitialized [-Werror=maybe-uninitialized]
+	 * ï¿½ï¿½<unknown>ï¿½ï¿½ may be used uninitialized [-Werror=maybe-uninitialized]
 	 *
 	 * This warning is reported because the uninitialized memory block
 	 * allocated by malloc should not be passed to a const argument as in
